@@ -1,0 +1,43 @@
+{
+  "name": "evolution-sieve-filters",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "vscode",
+
+  // Configure le build Meson dès la création du conteneur : génère
+  // build/compile_commands.json dont clangd se sert pour l'IntelliSense.
+  // Le chown de /workspaces (root par défaut) permet à dpkg-buildpackage
+  // (scripts/build-deb.sh) d'y déposer les .deb/.changes/.buildinfo, comme
+  // le veut la convention Debian (artefacts dans le répertoire parent du dépôt).
+  "postCreateCommand": "sudo chown vscode:vscode /workspaces; meson setup build --wipe || meson setup build",
+
+  "mounts": [
+    "source=${env:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached"
+  ],  
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "llvm-vs-code-extensions.vscode-clangd",
+        "mesonbuild.mesonbuild",
+        "ms-vscode.cpptools",
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        // clangd pour l'analyse, cpptools uniquement pour le débogage GDB.
+        "C_Cpp.intelliSenseEngine": "disabled",
+        "clangd.arguments": [
+          "--background-index",
+          "--compile-commands-dir=build",
+          "--header-insertion=never"
+        ],
+        "mesonbuild.configureOnOpen": true,
+        "mesonbuild.buildFolder": "build",
+        "files.associations": {
+          "*.h": "c"
+        }
+      }
+    }
+  }
+}
