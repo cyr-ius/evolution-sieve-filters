@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Même raisonnement que ci.yml : evolution-dev 3.56 (API EUIManager)
+    # n'est disponible que sur Debian trixie, pas sur les dépôts
+    # ubuntu-latest.
+    container: debian:trixie
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build tooling
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential devscripts equivs ca-certificates git
+
+      - name: Install Build-Depends (from debian/control)
+        run: mk-build-deps -i -r -t "apt-get -y --no-install-recommends" debian/control
+
+      - name: Determine release version
+        id: version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="${REF_NAME#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build source archive
+        env:
+          PKG_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          git archive --format=tar.gz \
+            --prefix="evolution-sieve-filters-${PKG_VERSION}/" \
+            -o "dist/evolution-sieve-filters-${PKG_VERSION}.tar.gz" \
+            HEAD
+
+      - name: Build .deb package
+        run: dpkg-buildpackage -b -us -uc
+
+      - name: Collect binary package artifacts
+        run: |
+          mkdir -p dist
+          mv ../evolution-sieve-filters_*.deb dist/
+          mv ../evolution-sieve-filters_*.changes dist/ 2>/dev/null || true
+          mv ../evolution-sieve-filters_*.buildinfo dist/ 2>/dev/null || true
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: evolution-sieve-filters-${{ steps.version.outputs.version }}
+          path: dist/*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

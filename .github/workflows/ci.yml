@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    # Debian trixie (13) : evolution-dev y est en 3.56, seule version
+    # supportant l'API EUIManager utilisée par le module (voir AGENTS.md et
+    # .devcontainer/Dockerfile). Les dépôts d'ubuntu-latest n'ont pas cette
+    # version, d'où l'exécution dans un conteneur Debian dédié.
+    container: debian:trixie
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tooling
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential devscripts equivs ca-certificates
+
+      - name: Install Build-Depends (from debian/control)
+        run: mk-build-deps -i -r -t "apt-get -y --no-install-recommends" debian/control
+
+      - name: meson setup
+        run: meson setup build
+
+      - name: meson compile
+        run: meson compile -C build
+
+      - name: meson test
+        run: meson test -C build --print-errorlogs
