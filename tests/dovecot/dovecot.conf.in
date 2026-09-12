@@ -1,30 +1,30 @@
-# Gabarit consommé par tests/dovecot/run.sh — NE PAS lancer Dovecot dessus
-# directement. Les jetons @...@ sont remplacés par run.sh (chemin absolu de la
-# fixture, uid/gid de l'utilisateur courant).
+# Template consumed by tests/dovecot/run.sh — DO NOT run Dovecot directly on
+# this file. The @...@ tokens are substituted by run.sh (fixture's absolute
+# path, current user's uid/gid).
 #
-# ⚠ SYNTAXE DOVECOT 2.3. Depuis le passage du devcontainer à Debian trixie,
-# Dovecot est en 2.4 : ce gabarit doit être porté (blocs `passdb`/`userdb`
-# nommés, `mail_driver`/`mail_path`, `ssl_server_cert_file`, disparition du
-# bloc `plugin {}` au profit de `sieve { }`, `auth_allow_cleartext`…). À faire
-# et vérifier contre le vrai Dovecot 2.4 après reconstruction du conteneur —
-# voir tests/dovecot/README.md.
+# WARNING: DOVECOT 2.3 SYNTAX. Since the devcontainer moved to Debian trixie,
+# Dovecot is at 2.4: this template needs to be ported (named `passdb`/`userdb`
+# blocks, `mail_driver`/`mail_path`, `ssl_server_cert_file`, the `plugin {}`
+# block dropped in favor of `sieve { }`, `auth_allow_cleartext`…). To do,
+# and to verify against the real Dovecot 2.4 after rebuilding the container —
+# see tests/dovecot/README.md.
 #
-# Instance Dovecot + Pigeonhole minimale et jetable, dédiée aux tests du
-# client ManageSieve : aucun compte système, tout sous tests/dovecot/.
+# Minimal, disposable Dovecot + Pigeonhole instance dedicated to the
+# ManageSieve client tests: no system account, everything under tests/dovecot/.
 
-# base_dir doit être un répertoire distinct de l'emplacement de CE fichier :
-# Dovecot recopie sa conf dans base_dir/dovecot.conf, ce qui créerait un
-# lien symbolique récursif si les deux chemins coïncidaient.
+# base_dir must be a directory distinct from where THIS file lives:
+# Dovecot copies its config into base_dir/dovecot.conf, which would create a
+# recursive symlink loop if the two paths coincided.
 base_dir      = @FIXTURE_DIR@/run/state
 log_path      = @FIXTURE_DIR@/run/dovecot.log
 info_log_path = @FIXTURE_DIR@/run/dovecot.log
 
-# Seul ManageSieve nous intéresse ; pas d'IMAP/POP3/LMTP.
+# Only ManageSieve matters here; no IMAP/POP3/LMTP.
 protocols = sieve
 
-# ssl = required : l'authentification en clair est refusée tant que la session
-# n'est pas chiffrée (STARTTLS ou TLS implicite). Les deux chemins sont exposés,
-# sur deux ports distincts (voir service managesieve-login plus bas).
+# ssl = required: plaintext auth is refused as long as the session isn't
+# encrypted (STARTTLS or implicit TLS). Both paths are exposed,
+# on two distinct ports (see the managesieve-login service below).
 ssl              = required
 ssl_cert         = <@FIXTURE_DIR@/run/cert.pem
 ssl_key          = <@FIXTURE_DIR@/run/key.pem
@@ -32,14 +32,14 @@ ssl_dh           = </usr/share/dovecot/dh.pem
 ssl_min_protocol = TLSv1.2
 
 disable_plaintext_auth = no
-# Jeu de mécanismes réaliste pour exercer la couche SASL du client : PLAIN et
-# LOGIN (mot de passe transmis), CRAM-MD5 et SCRAM-SHA-1/256 (défi-réponse,
-# le secret ne transite pas). La passdb ci-dessous stocke le mot de passe en
-# clair ({PLAIN}), ce qui permet à Dovecot de dériver tous ces mécanismes.
+# A realistic set of mechanisms to exercise the client's SASL layer: PLAIN and
+# LOGIN (password sent as-is), CRAM-MD5 and SCRAM-SHA-1/256 (challenge-response,
+# the secret never travels). The passdb below stores the password in
+# cleartext ({PLAIN}), which lets Dovecot derive all these mechanisms.
 auth_mechanisms        = plain login cram-md5 scram-sha-1 scram-sha-256
 auth_verbose           = yes
 
-# Base d'utilisateurs statique (fichier passwd-file) : « testuser / testpass ».
+# Static user base (passwd-file): "testuser / testpass".
 passdb {
   driver = passwd-file
   args   = @FIXTURE_DIR@/run/users
@@ -53,12 +53,12 @@ userdb {
 mail_location = maildir:@FIXTURE_DIR@/mail/%u/Maildir
 
 service managesieve-login {
-  # 4190 : STARTTLS — comportement d'un vrai serveur ManageSieve (RFC 5804).
+  # 4190: STARTTLS — behavior of a real ManageSieve server (RFC 5804).
   inet_listener sieve {
     port = 4190
   }
-  # 4191 : TLS implicite — mode par défaut de sieve-managesieve-client
-  #        (sieve_managesieve_client_new(..., implicit_tls = TRUE)).
+  # 4191: implicit TLS — default mode of sieve-managesieve-client
+  #       (sieve_managesieve_client_new(..., implicit_tls = TRUE)).
   inet_listener sieve_implicit_tls {
     port = 4191
     ssl  = yes

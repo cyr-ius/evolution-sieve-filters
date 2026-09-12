@@ -5,16 +5,16 @@
   },
   "remoteUser": "vscode",
 
-  // Configure le build Meson dès la création du conteneur : génère
-  // build/compile_commands.json dont clangd se sert pour l'IntelliSense.
-  // Le chown de /workspaces (root par défaut) permet à dpkg-buildpackage
-  // (scripts/build-deb.sh) d'y déposer les .deb/.changes/.buildinfo, comme
-  // le veut la convention Debian (artefacts dans le répertoire parent du dépôt).
+  // Sets up the Meson build as soon as the container is created: generates
+  // build/compile_commands.json, which clangd uses for IntelliSense.
+  // The chown of /workspaces (root by default) lets dpkg-buildpackage
+  // (scripts/build-deb.sh) drop the .deb/.changes/.buildinfo there, as
+  // the Debian convention requires (artifacts in the repo's parent directory).
   "postCreateCommand": "sudo chown vscode:vscode /workspaces; meson setup build --wipe || meson setup build",
 
   "mounts": [
     "source=${env:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached"
-  ],  
+  ],
 
   "customizations": {
     "vscode": {
@@ -25,7 +25,7 @@
         "anthropic.claude-code"
       ],
       "settings": {
-        // clangd pour l'analyse, cpptools uniquement pour le débogage GDB.
+        // clangd for analysis, cpptools only for GDB debugging.
         "C_Cpp.intelliSenseEngine": "disabled",
         "clangd.arguments": [
           "--background-index",

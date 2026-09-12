@@ -1,20 +1,20 @@
-# Image de développement pour evolution-sieve-filters.
-# Basée sur l'image devcontainers Microsoft (Debian 13 « trixie ») : fournit
-# déjà l'utilisateur non-root « vscode », git, sudo, etc.
+# Development image for evolution-sieve-filters.
+# Based on the Microsoft devcontainers image (Debian 13 "trixie"): already
+# provides the non-root "vscode" user, git, sudo, etc.
 #
-# Pourquoi trixie et pas bookworm : trixie livre « evolution-dev » 3.56.2, la
-# version qui tourne sur la machine cible (Hygor). Bookworm est bloqué en
-# 3.46.4, et le module (EUIManager / EShellView, Evolution 3.54+) ne se
-# compile/valide pas contre 3.46. Toutes les autres dépendances existent aussi
-# en trixie (evolution-data-server-dev 3.56.2, libglib2.0-dev 2.84, etc.).
-# Contrepartie : Dovecot passe en 2.4 (cf. tests/dovecot/).
+# Why trixie and not bookworm: trixie ships "evolution-dev" 3.56.2, the
+# version that runs on the target machine (Hygor). Bookworm is stuck at
+# 3.46.4, and the module (EUIManager / EShellView, Evolution 3.54+) doesn't
+# build/validate against 3.46. All the other dependencies also exist in
+# trixie (evolution-data-server-dev 3.56.2, libglib2.0-dev 2.84, etc.).
+# Trade-off: Dovecot moves to 2.4 (see tests/dovecot/).
 FROM mcr.microsoft.com/devcontainers/base:trixie
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      # --- chaîne de construction ---
+      # --- build toolchain ---
       build-essential \
       gcc \
       clang \
@@ -25,37 +25,36 @@ RUN apt-get update \
       ninja-build \
       pkg-config \
       ca-certificates \
-      # --- paquetage Debian (scripts/build-deb.sh, debian/) ---
-      # dpkg-dev est déjà tiré par build-essential (dpkg-buildpackage) ;
-      # debhelper (compat 13) et devscripts+equivs (mk-build-deps) ne le sont
-      # pas.
+      # --- Debian packaging (scripts/build-deb.sh, debian/) ---
+      # dpkg-dev is already pulled in by build-essential (dpkg-buildpackage);
+      # debhelper (compat 13) and devscripts+equivs (mk-build-deps) are not.
       debhelper \
       devscripts \
       equivs \
       # --- GLib / GIO / GTK ---
       libglib2.0-dev \
       libgtk-3-dev \
-      # --- SASL fort pour le client ManageSieve (SCRAM, CRAM-MD5, LOGIN…) ---
+      # --- strong SASL for the ManageSieve client (SCRAM, CRAM-MD5, LOGIN…) ---
       libgsasl-dev \
-      # --- trousseau : rangement du mot de passe ManageSieve (src/sieve-secret.c).
-      # libsecret-1-dev est déjà tiré par evolution-dev, mais src/sieve-secret.c
-      # en dépend directement — on l'installe explicitement pour que la lib
-      # cliente se construise même si la dépendance transitive disparaît. ---
+      # --- keyring: storing the ManageSieve password (src/sieve-secret.c).
+      # libsecret-1-dev is already pulled in by evolution-dev, but
+      # src/sieve-secret.c depends on it directly — install it explicitly so
+      # the client lib still builds if the transitive dependency disappears. ---
       libsecret-1-dev \
-      # gnome-keyring : Secret Service jetable pour tests/secret/smoke.sh
-      # (dbus-run-session est fourni par 'dbus', déjà présent via l'image de base).
+      # gnome-keyring: disposable Secret Service for tests/secret/smoke.sh
+      # (dbus-run-session is provided by 'dbus', already present in the base image).
       gnome-keyring \
-      # --- en-têtes Evolution (evolution-shell-3.0.pc, evolution-mail-3.0.pc) ---
-      # trixie : 3.56.2 — même version que la machine cible (API EUIManager).
+      # --- Evolution headers (evolution-shell-3.0.pc, evolution-mail-3.0.pc) ---
+      # trixie: 3.56.2 — same version as the target machine (EUIManager API).
       evolution-dev \
-      # evolution-dev fournit e-util/e-contact-store.h qui inclut
-      # <libebook/libebook.h> sans en dépendre : il faut l'ajouter à la main.
+      # evolution-dev ships e-util/e-contact-store.h which includes
+      # <libebook/libebook.h> without depending on it: must be added by hand.
       libebook1.2-dev \
-      # --- en-têtes Evolution Data Server (camel-1.2.pc) ---
+      # --- Evolution Data Server headers (camel-1.2.pc) ---
       evolution-data-server-dev \
-      # --- backend TLS de GIO (nécessaire à l'exécution pour le port 4190) ---
+      # --- GIO TLS backend (needed at runtime for port 4190) ---
       glib-networking \
-      # --- serveur ManageSieve de test (tests/dovecot/) ---
+      # --- test ManageSieve server (tests/dovecot/) ---
       dovecot-core \
       dovecot-managesieved \
       dovecot-sieve \
