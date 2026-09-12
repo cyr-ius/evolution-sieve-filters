@@ -1,0 +1,25 @@
+# Répertoires de build meson
+build/
+build-*/
+
+# Artefacts de paquetage Debian (dpkg-buildpackage construit dans le dépôt)
+/debian/.debhelper/
+/debian/*.substvars
+/debian/*.debhelper.log
+/debian/files
+/debian/evolution-sieve-filters/
+/debian/tmp/
+/dist/
+
+# État d'exécution des fixtures de test (Dovecot jetable)
+/tests/dovecot/run/
+
+# Vidages mémoire
+core
+core.*
+
+# Éditeurs
+*.swp
+
+# État local de Claude Code (verrous de tâches planifiées, etc.)
+/.claude/
