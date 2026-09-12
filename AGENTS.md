@@ -1,264 +1,261 @@
-# AGENTS.md — repères pour un assistant IA
+# AGENTS.md — pointers for an AI assistant
 
-Destiné à tout assistant de code (Claude Code, Copilot, Cursor, Aider…).
-Complète le `README.md` (vision, « Ce qui manque »), ne le remplace pas.
+Intended for any code assistant (Claude Code, Copilot, Cursor, Aider…).
+Complements `README.md` (vision, "What's missing"), does not replace it.
 
-## En deux phrases
+## In two sentences
 
-Greffon Evolution pour gérer des filtres **Sieve** côté serveur via
-**ManageSieve** (RFC 5804). Le cœur réutilisable est
-`src/sieve-managesieve-client.[ch]` : un client ManageSieve autonome en
-GLib/GIO pur, **sans dépendance à Evolution**, donc testable seul.
+Evolution plugin for managing server-side **Sieve** filters via
+**ManageSieve** (RFC 5804). The reusable core is
+`src/sieve-managesieve-client.[ch]`: a standalone ManageSieve client in
+pure GLib/GIO, **with no dependency on Evolution**, and therefore
+testable on its own.
 
-## Construire
+## Building
 
-Toutes les dépendances sont déjà dans l'image du devcontainer
+All dependencies are already in the devcontainer image
 (`.devcontainer/Dockerfile`).
 
 ```sh
-meson setup build          # (déjà fait par postCreateCommand)
-meson compile -C build     # bibliothèque + module + tests/test-managesieve
+meson setup build          # (already done by postCreateCommand)
+meson compile -C build     # library + module + tests/test-managesieve
 ```
 
-- Le **module Evolution** (`src/module-sieve-filters.c`) ne se compile que si
-  `evolution-shell-3.0.pc` / `evolution-mail-3.0.pc` sont présents
-  (`evolution-dev`). Sinon Meson ne bâtit que la lib cliente + les tests.
-- **`libgsasl-dev` est requis** (pas seulement pour le module) : la lib cliente
-  `sieve-managesieve-client` en dépend via `src/sieve-sasl.c`. Déjà dans le
-  Dockerfile. Absent → `meson setup` échoue sur `dependency('libgsasl')`.
-- **`libsecret-1-dev` est requis** de la même façon : `src/sieve-secret.c`
-  (rangement du mot de passe au trousseau) en dépend. Déjà dans le Dockerfile
-  (aussi tiré en transitif par `evolution-dev`, mais on l'installe explicitement).
-  Absent → `meson setup` échoue sur `dependency('libsecret-1')`.
-- **Piège de paquet** : `evolution-dev` livre
-  `/usr/include/evolution/e-util/e-contact-store.h` qui fait
-  `#include <libebook/libebook.h>` **sans en dépendre**. Il faut
-  `libebook1.2-dev` (ajouté au Dockerfile). Symptôme si absent :
+- The **Evolution module** (`src/module-sieve-filters.c`) only builds if
+  `evolution-shell-3.0.pc` / `evolution-mail-3.0.pc` are present
+  (`evolution-dev`). Otherwise Meson only builds the client lib + tests.
+- **`libgsasl-dev` is required** (not just for the module): the client
+  lib `sieve-managesieve-client` depends on it via `src/sieve-sasl.c`.
+  Already in the Dockerfile. Missing → `meson setup` fails on
+  `dependency('libgsasl')`.
+- **`libsecret-1-dev` is required** the same way: `src/sieve-secret.c`
+  (storing the password in the keyring) depends on it. Already in the
+  Dockerfile (also pulled in transitively by `evolution-dev`, but we
+  install it explicitly).
+  Missing → `meson setup` fails on `dependency('libsecret-1')`.
+- **Package gotcha**: `evolution-dev` ships
+  `/usr/include/evolution/e-util/e-contact-store.h` which does
+  `#include <libebook/libebook.h>` **without depending on it**. You need
+  `libebook1.2-dev` (added to the Dockerfile). Symptom if missing:
   `fatal error: libebook/libebook.h: No such file or directory`.
 
-## Tester le client ManageSieve (sans Evolution)
+## Testing the ManageSieve client (without Evolution)
 
-`tests/test-managesieve` est un CLI qui appelle directement l'API du client.
-`tests/dovecot/` fournit un **Dovecot + Pigeonhole jetable** (aucun compte
-système, tout sous `tests/dovecot/`).
+`tests/test-managesieve` is a CLI that calls the client's API directly.
+`tests/dovecot/` provides a **disposable Dovecot + Pigeonhole** (no
+system account, everything under `tests/dovecot/`).
 
 ```sh
-meson test -C build                       # tests unitaires SASL (tests/test-sasl,
-                                          # sans réseau) : négociation + OAuth
+meson test -C build                       # SASL unit tests (tests/test-sasl,
+                                          # no network): negotiation + OAuth
 
-tests/dovecot/smoke.sh                    # bout-en-bout : monte Dovecot,
-                                          # teste TLS implicite ET STARTTLS,
+tests/dovecot/smoke.sh                    # end-to-end: brings up Dovecot,
+                                          # tests implicit TLS AND STARTTLS,
                                           # LIST/CHECK/PUT/GET/SETACTIVE/DELETE,
-                                          # puis chaque mécanisme SASL + auto
-# ou : meson compile -C build dovecot-smoke
+                                          # then each SASL mechanism + auto
+# or: meson compile -C build dovecot-smoke
 
-tests/dovecot/run.sh --daemon             # serveur persistant
+tests/dovecot/run.sh --daemon             # persistent server
 tests/dovecot/run.sh --stop
 ```
 
-### Trousseau (`sieve-secret`)
+### Keyring (`sieve-secret`)
 
-`meson test` lance `tests/test-sieve-secret` : sans Secret Service joignable
-il se met en **skip** (pas d'échec — le CI sans session D-Bus reste vert).
-Le vrai aller-retour `store`/`lookup`/`clear` est couvert par
-`tests/secret/smoke.sh` (`meson compile -C build secret-smoke`) : il monte un
-**gnome-keyring jetable** sous `dbus-run-session` (tout sous `tests/secret/run/`,
-trousseau de session de l'utilisateur jamais touché) et relance le binaire avec
-`SIEVE_SECRET_REQUIRE_SERVICE=1` (dans ce mode, l'absence de service = échec).
-Voir `tests/secret/README.md`.
+`meson test` runs `tests/test-sieve-secret`: without a reachable Secret
+Service it **skips** (not a failure — CI without a D-Bus session stays
+green). The real `store`/`lookup`/`clear` round-trip is covered by
+`tests/secret/smoke.sh` (`meson compile -C build secret-smoke`): it
+brings up a **disposable gnome-keyring** under `dbus-run-session`
+(everything under `tests/secret/run/`, the user's own session keyring is
+never touched) and reruns the binary with
+`SIEVE_SECRET_REQUIRE_SERVICE=1` (in that mode, no service present =
+failure). See `tests/secret/README.md`.
 
-- SASL : `--mech PLAIN|LOGIN|CRAM-MD5|SCRAM-SHA-1|SCRAM-SHA-256|OAUTHBEARER|
-  XOAUTH2` force un mécanisme ; sans `--mech`, négociation auto (préfère SCRAM).
-  `--oauth2-token` (ou `$SIEVE_OAUTH2_TOKEN`) pour OAUTHBEARER/XOAUTH2.
-  Le Dovecot de test annonce `plain login cram-md5 scram-sha-1 scram-sha-256`.
+- SASL: `--mech PLAIN|LOGIN|CRAM-MD5|SCRAM-SHA-1|SCRAM-SHA-256|OAUTHBEARER|
+  XOAUTH2` forces a mechanism; without `--mech`, auto negotiation
+  (prefers SCRAM). `--oauth2-token` (or `$SIEVE_OAUTH2_TOKEN`) for
+  OAUTHBEARER/XOAUTH2. The test Dovecot advertises
+  `plain login cram-md5 scram-sha-1 scram-sha-256`.
 
-- **`localhost:4190` = STARTTLS**, **`localhost:4191` = TLS implicite**.
-- Identifiants **`testuser` / `testpass`**.
-- `ssl = required` : pas d'auth en clair.
-- Le cert auto-signé (SAN `localhost`) est déposé dans
-  `/usr/local/share/ca-certificates/` par `run.sh` : la validation TLS du
-  client passe **sans** mode « insecure » (le client n'en a pas).
+- **`localhost:4190` = STARTTLS**, **`localhost:4191` = implicit TLS**.
+- Credentials: **`testuser` / `testpass`**.
+- `ssl = required`: no plaintext auth.
+- The self-signed cert (SAN `localhost`) is dropped into
+  `/usr/local/share/ca-certificates/` by `run.sh`: the client's TLS
+  validation passes **without** an "insecure" mode (the client doesn't
+  have one).
 
-Contre un vrai serveur : `test-managesieve --host … --user … [--starttls] [--port N]`.
+Against a real server: `test-managesieve --host … --user … [--starttls] [--port N]`.
 
-## Pièges rencontrés (ne pas re-déboguer)
+## Pitfalls encountered (don't re-debug these)
 
-| Symptôme | Cause / correctif |
+| Symptom | Cause / fix |
 |---|---|
-| `libebook/libebook.h: No such file` | installer `libebook1.2-dev` (cf. plus haut) |
-| Dovecot : `Too many levels of symbolic links` sur `dovecot.conf` | `base_dir` ne doit pas être le dossier qui contient la conf générée → il est mis dans `tests/dovecot/run/state/` |
-| `dovecot.log` : `t_readlink(...dovecot.conf) failed: Invalid argument` | artefact Dovecot 2.3 sur overlayfs (workspace devcontainer). **Inoffensif.** |
-| `NO ... "Cannot delete the active Sieve script."` | Dovecot refuse `DELETESCRIPT` sur le script actif → `SETACTIVE ""` d'abord (`test-managesieve --deactivate`) |
-| `NO ... PUTSCRIPT: Invalid arguments` observé une fois | c'était l'état cassé par la boucle de symlink ci-dessus, pas un bug du client. Le cadrage `{N+}` du client est correct. |
-| Handshake TLS `Connection reset by peer` au démarrage | le process `config` de Dovecot a planté (conf invalide) → lire `tests/dovecot/run/dovecot.log` |
-| `test-sieve-secret` : `SKIP ... Failed to execute child process "dbus-launch"` | normal hors session D-Bus : libsecret ne peut pas démarrer de bus. Le test se met en skip. Pour le vrai aller-retour : `tests/secret/smoke.sh`. |
-| smoke trousseau : `Cannot create an item in a locked collection` | l'alias Secret Service `default` pointe sur une collection verrouillée (prompteur graphique indispo en headless). `smoke.sh` pré-désigne le trousseau `login` (créé déverrouillé par `--unlock`) via `keyrings/default`. Si ça persiste : `pkill -9 gnome-keyring-daemon` (démon résiduel d'un run précédent) puis relancer. |
-| Menu contextuel « Créer un filtre Sieve » : rien, `WARNING sieve: le contenu de la vue (EMailShellContent) n'est pas un EMailReader` | dans Evolution 3.56, `EMailShellContent` **n'implémente plus** l'interface `EMailReader` (c'est la vue interne `EMailPanedView` qui la porte, widget descendant). `module-sieve-filters.c` la retrouve avec `sieve_find_mail_reader()` (parcours récursif des widgets sous le `EShellContent`) — pas d'en-tête privé `e-mail-shell-content.h` requis. |
-| Fusion `.eui` dans `mail-message-popup` (menu contextuel liste des messages) | `e_ui_manager_add_actions_with_eui_data` reste réservé au fragment `main-menu` (enregistre aussi les actions) ; le fragment du menu contextuel est fusionné à part via `e_ui_parser_merge_data(e_ui_manager_get_parser(ui_manager), …)` + `e_ui_manager_changed()`, pour pouvoir journaliser un `GError`. Cible : placeholder `mail-conversion-actions` du sous-menu `mail-create-menu` ; repli automatique sur `mail-message-popup-common-actions` si refusée. |
+| `libebook/libebook.h: No such file` | install `libebook1.2-dev` (see above) |
+| Dovecot: `Too many levels of symbolic links` on `dovecot.conf` | `base_dir` must not be the directory holding the generated conf → it's put in `tests/dovecot/run/state/` |
+| `dovecot.log`: `t_readlink(...dovecot.conf) failed: Invalid argument` | Dovecot 2.3 artifact on overlayfs (devcontainer workspace). **Harmless.** |
+| `NO ... "Cannot delete the active Sieve script."` | Dovecot refuses `DELETESCRIPT` on the active script → `SETACTIVE ""` first (`test-managesieve --deactivate`) |
+| `NO ... PUTSCRIPT: Invalid arguments` seen once | it was state broken by the symlink loop above, not a client bug. The client's `{N+}` literal framing is correct. |
+| TLS handshake `Connection reset by peer` on startup | Dovecot's `config` process crashed (invalid conf) → read `tests/dovecot/run/dovecot.log` |
+| `test-sieve-secret`: `SKIP ... Failed to execute child process "dbus-launch"` | normal outside a D-Bus session: libsecret can't start a bus. The test skips. For the real round-trip: `tests/secret/smoke.sh`. |
+| keyring smoke: `Cannot create an item in a locked collection` | the `default` Secret Service alias points to a locked collection (no graphical prompter available headless). `smoke.sh` pre-designates the `login` keyring (created unlocked via `--unlock`) via `keyrings/default`. If it persists: `pkill -9 gnome-keyring-daemon` (leftover daemon from a previous run) then rerun. |
+| "Create Sieve Filter" context menu item: nothing happens, `WARNING sieve: view content (EMailShellContent) is not an EMailReader` | in Evolution 3.56, `EMailShellContent` **no longer implements** the `EMailReader` interface (it's the internal `EMailPanedView` widget, a descendant, that carries it). `module-sieve-filters.c` finds it with `sieve_find_mail_reader()` (recursive widget walk under the `EShellContent`) — no private `e-mail-shell-content.h` header needed. |
+| Merging the `.eui` fragment into `mail-message-popup` (message list context menu) | `e_ui_manager_add_actions_with_eui_data` stays reserved for the `main-menu` fragment (it also registers the actions); the context menu fragment is merged separately via `e_ui_parser_merge_data(e_ui_manager_get_parser(ui_manager), …)` + `e_ui_manager_changed()`, so a `GError` can be logged. Target: the `mail-conversion-actions` placeholder in the `mail-create-menu` submenu; falls back automatically to `mail-message-popup-common-actions` if refused. |
 
-## Disposition
+## Layout
 
 ```
-src/sieve-managesieve-client.[ch]  client ManageSieve réutilisable (GLib/GIO)
-src/sieve-sasl.[ch]                couche SASL (négociation + mécanismes),
-                                   libgsasl + OAUTHBEARER/XOAUTH2 maison
-src/sieve-model.[ch]               modèle règles Sieve (critères/actions,
-                                   + règles « opaques » conservées verbatim) +
-                                   (dé)sérialisation ; GLib pur, testable seul
-src/sieve-secret.[ch]              rangement du mot de passe au trousseau
-                                   (libsecret) ; GLib/GIO pur, testable seul
-src/sieve-account.[ch]             lecture des comptes Evolution ; repérage
-                                   OAuth2 + jeton d'accès via EDS
-                                   (e_source_get_oauth2_access_token_sync) ;
-                                   relecture du mot de passe du compte via EDS
-                                   (e_source_credentials_provider_lookup_sync) ;
-                                   DÉPEND de libedataserver (bâti avec le module)
-src/sieve-config.[ch]              préférences GKeyFile (XDG_CONFIG_HOME) :
-                                   un profil de connexion PAR COMPTE
-                                   ([account <UID>]) + profil [manual] +
-                                   [state] last-account ; migration de
-                                   l'ancien [connection] ; GLib pur, testable
-src/sieve-config-page.[ch]         page « Filtres Sieve » de l'éditeur de
-                                   comptes (EMailConfigPage + EExtension sur
-                                   E_TYPE_MAIL_CONFIG_NOTEBOOK) : paramètres
-                                   de connexion du compte (hôte/port/user/TLS)
-                                   + auto-connect, écrits dans sieve-config ;
-                                   section Authentification : champ mot de
-                                   passe MASQUÉ par défaut (mot de passe pris
-                                   au trousseau) ; le bouton « Oublier le mot
-                                   de passe » efface l'entrée trousseau
-                                   (thread détaché, sans effet si rien) ET
-                                   révèle le champ ; au commit, mot de passe
-                                   saisi rangé au trousseau (sieve-secret,
-                                   thread détaché) puis champ remasqué ;
-                                   OAuth2 : champ + bouton masqués ; DÉPEND
-                                   d'evolution-mail + libedataserver (bâti
-                                   avec le module)
-src/sieve-rule-editor.[ch]         widget GTK « éditeur visuel » (GtkBox)
-src/sieve-editor-dialog.[ch]       dialogue GTK autonome (GtkStack visuel/texte)
-src/module-sieve-filters.c         point d'entrée EModule : entrée de menu
-                                   Édition → Filtres Sieve… + entrée de menu
-                                   contextuel Message → Créer → Créer un
-                                   filtre Sieve… (règle pré-remplie sur
-                                   l'expéditeur, via
-                                   sieve_editor_dialog_new_with_seed) + page
-                                   éditeur de comptes (sieve-config-page)
-tests/test-managesieve.c           CLI de test du client (réseau)
-tests/test-sasl.c                  tests unitaires de sieve-sasl (sans réseau)
-tests/test-sieve-model.c           tests unitaires de sieve-model (sans réseau)
-tests/test-sieve-secret.c          aller-retour trousseau ; skip sans Secret Service
-tests/test-sieve-config.c          profils par compte + [manual] +
-                                   last-account + migration [connection]
-                                   (XDG_CONFIG_HOME temporaire, sans réseau)
-tests/test-timeout.c               délai réseau + GCancellable du client
-                                   (GSocketService local muet, sans réseau)
-tests/secret/                      trousseau jetable (gnome-keyring + dbus-run-session)
-tests/dovecot/                     fixture serveur (voir son README.md)
-po/                                traductions gettext du module Evolution
-                                   (POTFILES.in, LINGUAS, fr.po) ; voir
-                                   « Traductions (gettext) » ci-dessous
+src/sieve-managesieve-client.[ch]  reusable ManageSieve client (GLib/GIO)
+src/sieve-sasl.[ch]                SASL layer (negotiation + mechanisms),
+                                   libgsasl + homemade OAUTHBEARER/XOAUTH2
+src/sieve-model.[ch]               Sieve rule model (criteria/actions,
+                                   + "opaque" rules kept verbatim) +
+                                   (de)serialization; pure GLib, testable alone
+src/sieve-secret.[ch]              password storage in the keyring
+                                   (libsecret); pure GLib/GIO, testable alone
+src/sieve-account.[ch]             reading Evolution accounts; OAuth2
+                                   detection + access token via EDS
+                                   (e_source_get_oauth2_access_token_sync);
+                                   re-reading the account's password via EDS
+                                   (e_source_credentials_provider_lookup_sync);
+                                   DEPENDS on libedataserver (built with the module)
+src/sieve-config.[ch]              GKeyFile preferences (XDG_CONFIG_HOME):
+                                   one connection profile PER ACCOUNT
+                                   ([account <UID>]) + [manual] profile +
+                                   [state] last-account; migration of the
+                                   old [connection]; pure GLib, testable
+src/sieve-config-page.[ch]         "Sieve Filters" page of the account
+                                   editor (EMailConfigPage + EExtension on
+                                   E_TYPE_MAIL_CONFIG_NOTEBOOK): the
+                                   account's connection settings
+                                   (host/port/user/TLS) + auto-connect,
+                                   written to sieve-config; Authentication
+                                   section: password field HIDDEN by
+                                   default (password taken from the
+                                   keyring); the "Forget password" button
+                                   clears the keyring entry (detached
+                                   thread, no-op if nothing there) AND
+                                   reveals the field; on commit, the
+                                   entered password is stored in the
+                                   keyring (sieve-secret, detached thread)
+                                   then the field is re-hidden; OAuth2:
+                                   field + button hidden; DEPENDS on
+                                   evolution-mail + libedataserver (built
+                                   with the module)
+src/sieve-rule-editor.[ch]         "visual editor" GTK widget (GtkBox)
+src/sieve-editor-dialog.[ch]       standalone GTK dialog (GtkStack visual/text)
+src/module-sieve-filters.c         EModule entry point: Edit → Sieve
+                                   Filters… menu entry + Message → Create
+                                   → Create Sieve Filter… context menu
+                                   entry (rule pre-filled on the sender,
+                                   via sieve_editor_dialog_new_with_seed)
+                                   + account editor page (sieve-config-page)
+tests/test-managesieve.c           client test CLI (network)
+tests/test-sasl.c                  sieve-sasl unit tests (no network)
+tests/test-sieve-model.c           sieve-model unit tests (no network)
+tests/test-sieve-secret.c          keyring round-trip; skips without Secret Service
+tests/test-sieve-config.c          per-account profiles + [manual] +
+                                   last-account + [connection] migration
+                                   (temporary XDG_CONFIG_HOME, no network)
+tests/test-timeout.c               network timeout + client GCancellable
+                                   (local mute GSocketService, no network)
+tests/secret/                      disposable keyring (gnome-keyring + dbus-run-session)
+tests/dovecot/                     server fixture (see its README.md)
+po/                                gettext translations for the Evolution
+                                   module (POTFILES.in, LINGUAS, fr.po); see
+                                   "Translations (gettext)" below
 ```
 
 ## Conventions
 
-- C `gnu11`, `warning_level=2`, style GLib/GObject (`g_autoptr` bienvenu,
-  `GError **` partout, `GCancellable` propagé même si pas encore exploité).
-- **Commentaires en anglais, msgid en anglais** (cohérence avec l'existant ;
-  ce dépôt de documentation reste rédigé en français, mais le code source —
-  commentaires et chaînes littérales — est en anglais). Les chaînes
-  visibles du module Evolution passent par gettext (`_()`/`N_()`) et sont
-  donc traduisibles ; l'anglais n'est plus la seule langue d'affichage
-  utilisateur, seulement la langue source des `msgid` (voir « Traductions
-  (gettext) » ci-dessous).
-- Pas de nouvelle dépendance tierce sans raison forte : GLib/GIO couvrent
-  TCP+TLS. `libgsasl` (SASL fort) et `libsecret` (trousseau) sont désormais
-  en place ; ne rien ajouter d'autre à la légère.
-- `sieve-secret.c` : couche mince au-dessus de l'API « simple password » de
-  libsecret, **synchrone** (comme le client), aucune dépendance GTK ni
-  Evolution — garder ainsi. Schéma **propre au greffon** : on ne réutilise pas
-  l'entrée du compte IMAP d'evolution-data-server (mot de passe possiblement
-  distinct, et eds ne l'expose pas hors `ESource`). Le dialogue appelle
-  `sieve_secret_*` **depuis le thread de travail**, jamais sur la boucle GTK.
-- Le protocole ET les mécanismes SASL ont été validés **contre un vrai
-  Dovecot** : si tu touches au parseur de réponses, au cadrage des literals
-  ou à `sieve-sasl.c`, relance `meson test` puis `smoke.sh`.
-- SASL : la négociation/`sieve-sasl.c` est autonome (aucune dépendance
-  Evolution) — garder ainsi. OAUTHBEARER/XOAUTH2 sont construits à la main
-  (libgsasl ne les fournit pas) ; le client **consomme** un jeton, il ne
-  l'acquiert pas.
+- C `gnu11`, `warning_level=2`, GLib/GObject style (`g_autoptr` welcome,
+  `GError **` everywhere, `GCancellable` propagated even if not yet
+  exploited).
+- **Comments in English, msgids in English**, and project documentation
+  (`README.md`, `AGENTS.md`, other `.md` files, `meson.build` comments)
+  in English too. User-visible strings in the Evolution module go
+  through gettext (`_()`/`N_()`) and are therefore translatable; a
+  French translation is provided (see "Translations (gettext)" below).
+- No new third-party dependency without a strong reason: GLib/GIO cover
+  TCP+TLS. `libgsasl` (strong SASL) and `libsecret` (keyring) are now in
+  place; don't add anything else lightly.
+- `sieve-secret.c`: a thin layer over libsecret's "simple password" API,
+  **synchronous** (like the client), no GTK nor Evolution dependency —
+  keep it that way. Schema **private to the plugin**: we don't reuse the
+  IMAP account entry from evolution-data-server (the password may
+  differ, and eds doesn't expose it outside `ESource`). The dialog calls
+  `sieve_secret_*` **from the worker thread**, never on the GTK main loop.
+- The protocol AND the SASL mechanisms have been validated **against a
+  real Dovecot**: if you touch the response parser, literal framing, or
+  `sieve-sasl.c`, rerun `meson test` then `smoke.sh`.
+- SASL: negotiation/`sieve-sasl.c` is self-contained (no Evolution
+  dependency) — keep it that way. OAUTHBEARER/XOAUTH2 are built by hand
+  (libgsasl doesn't provide them); the client **consumes** a token, it
+  doesn't acquire one.
 
-## Traductions (gettext)
+## Translations (gettext)
 
-Le module Evolution est traduisible via gettext (GLib, aucune dépendance
-supplémentaire) : `_()`/`N_()` sur les chaînes visibles de
-`module-sieve-filters.c`, `sieve-editor-dialog.c`, `sieve-config-page.c` et
-`sieve-rule-editor.c` (liste exacte : `po/POTFILES.in`). Une traduction
-française complète est fournie (`po/fr.po` ; langues déclarées dans
+The Evolution module is translatable via gettext (GLib, no extra
+dependency): `_()`/`N_()` on the user-visible strings of
+`module-sieve-filters.c`, `sieve-editor-dialog.c`, `sieve-config-page.c`
+and `sieve-rule-editor.c` (exact list: `po/POTFILES.in`). A complete
+French translation is provided (`po/fr.po`; languages declared in
 `po/LINGUAS`).
 
-**Périmètre volontairement limité** : la bibliothèque protocole
-(`sieve-managesieve-client`, `sieve-sasl`, `sieve-account`, `sieve-secret`,
-`sieve-config`, `sieve-srv`, `sieve-model`) reste **hors gettext** — elle est
-testée seule via des CLI qui n'ont pas vocation à être traduites, et ses
-messages (journal `g_warning`/`g_debug`, `GError->message`) restent en
-anglais. Les enveloppes affichées à l'utilisateur autour de ces erreurs
-(« Connection failed: %s », « Save failed: %s »…) sont traduites côté
-`sieve-editor-dialog.c` / `sieve-config-page.c` ; le détail de l'erreur
-sous-jacente (`error->message`) reste en anglais.
+**Deliberately limited scope**: the protocol library
+(`sieve-managesieve-client`, `sieve-sasl`, `sieve-account`,
+`sieve-secret`, `sieve-config`, `sieve-srv`, `sieve-model`) stays
+**outside gettext** — it's tested on its own via CLIs that aren't meant
+to be translated, and its messages (`g_warning`/`g_debug` logs,
+`GError->message`) stay in English. The user-facing wrappers around
+these errors ("Connection failed: %s", "Save failed: %s"…) are
+translated on the `sieve-editor-dialog.c` / `sieve-config-page.c` side;
+the underlying error detail (`error->message`) stays in English.
 
-**Piège C** : un tableau `static const` (p. ex. les listes de libellés de
-`sieve-rule-editor.c`, ou la table `EUIActionEntry` de
-`module-sieve-filters.c`) ne peut pas être initialisé avec `_()` — un appel
-gettext n'est pas une expression constante. Ces tables sont donc
-construites en local (portée fonction, sans `static`) là où elles sont
-utilisées.
+**C gotcha**: a `static const` array (e.g. the label lists in
+`sieve-rule-editor.c`, or the `EUIActionEntry` table in
+`module-sieve-filters.c`) can't be initialized with `_()` — a gettext
+call isn't a constant expression. These tables are therefore built
+locally (function scope, no `static`) where they're used.
 
-Pour ajouter/modifier une chaîne traduisible : l'envelopper avec `_()` (ou
-`N_()` si elle n'est utilisée qu'ailleurs), puis régénérer `po/fr.po` :
+To add/change a translatable string: wrap it with `_()` (or `N_()` if
+it's only used elsewhere), then regenerate `po/fr.po`:
 
 ```sh
-meson compile -C build evolution-sieve-filters-pot   # régénère po/evolution-sieve-filters.pot
+meson compile -C build evolution-sieve-filters-pot   # regenerates po/evolution-sieve-filters.pot
 msgmerge --update po/fr.po po/evolution-sieve-filters.pot
-# puis traduire les nouvelles entrées (msgstr "") dans po/fr.po
+# then translate the new entries (msgstr "") in po/fr.po
 ```
 
-`meson compile -C build` régénère ensuite le `.mo` installé
-(`po/fr/LC_MESSAGES/evolution-sieve-filters.mo`). Vérification de la
-syntaxe : `msgfmt --check --statistics po/fr.po`.
+`meson compile -C build` then regenerates the installed `.mo`
+(`po/fr/LC_MESSAGES/evolution-sieve-filters.mo`). Syntax check:
+`msgfmt --check --statistics po/fr.po`.
 
-## À faire (détaillé dans README.md « Limites connues »)
+## To do (detailed in README.md "Known limitations")
 
-~~Intégration menu Evolution~~ (fait : menu *Édition → Filtres Sieve…*,
-menu contextuel *Message → Créer → Créer un filtre Sieve…*, page « Filtres
-Sieve » de l'éditeur de comptes) · lecture des réglages de compte
-(`CamelSettings`/`ESource` — les paramètres de connexion ManageSieve ont
-déjà une page dédiée dans l'éditeur de comptes, `sieve-config-page` ;
-reste la lecture fine de `CamelSettings`, p. ex. sécurité IMAP →
-pré-cocher « TLS implicite ») · ~~mots de passe via `libsecret`~~ (fait :
-`sieve-secret`) · ~~acquisition du jeton OAuth2~~ (fait :
-`sieve_account_dup_oauth2_token()` →
-`e_source_get_oauth2_access_token_sync()`, branché sur
-`SieveManageSieveAuth.oauth2_token` par `sieve-editor-dialog.c` ;
-acquisition + rafraîchissement délégués à EDS) · SCRAM-*-PLUS (channel
-binding TLS) et GSSAPI · durcissement du parseur de
-réponses · éditeur visuel conditions/actions : **base en place**
-(`sieve-model` + `sieve-rule-editor`). Les constructions non représentables
-(scripts écrits à la main, blocs Nextcloud Mail / Roundcube, `vacation`…)
-sont désormais **conservées verbatim** en règles « opaques »
-(`SieveRule.opaque` / `.raw`) : l'éditeur visuel les affiche verrouillées
-(cadenas, lecture seule), l'onglet texte brut reste seul à pouvoir les
-modifier. Reste à faire : vrai parseur RFC 5228 pour les rendre éditables,
-`variables`, réordonnancement et activation des règles · annulation réseau
-côté UI.
+Reading account settings (`CamelSettings`/`ESource` — the ManageSieve
+connection settings already have a dedicated page in the account editor,
+`sieve-config-page`; still missing: fine-grained `CamelSettings` reading,
+e.g. IMAP security → pre-check "implicit TLS") · SCRAM-*-PLUS (TLS
+channel binding) and GSSAPI · hardening the response parser · visual
+editor for conditions/actions: **basics in place**
+(`sieve-model` + `sieve-rule-editor`). Constructs that can't be
+represented (hand-written scripts, Nextcloud Mail / Roundcube blocks,
+`vacation`…) are now **kept verbatim** as "opaque" rules
+(`SieveRule.opaque` / `.raw`): the visual editor shows them locked
+(padlock, read-only), only the plain text tab can still edit them.
+Remaining: a real RFC 5228 parser to make them editable, `variables`,
+rule reordering and enabling/disabling · network cancellation on the UI
+side.
 
-`sieve-model` / `sieve-rule-editor` sont indépendants d'Evolution — garder
-ainsi. L'éditeur ignore donc d'où viennent les dossiers : c'est
-`sieve-editor-dialog.c` (côté Evolution) qui énumère le `CamelStore` du
-compte choisi (`camel_store_get_folder_info_sync`, en cache, sur un thread)
-et les injecte via `sieve_rule_editor_set_mailboxes()` pour que l'action
-`fileinto` propose une liste déroulante éditable. Si tu touches au
-(dé)sérialiseur, relance `meson test` :
-`tests/test-sieve-model.c` vérifie que l'aller-retour modèle ⇄ script est
-stable au caractère près, y compris pour les règles opaques (texte d'un
-autre outil recopié tel quel), et que seul un script lexicalement cassé
-(accolade / chaîne non fermée) fait encore échouer `sieve_rule_set_parse()`.
+`sieve-model` / `sieve-rule-editor` are independent of Evolution — keep
+it that way. The editor is therefore unaware of where the folders come
+from: it's `sieve-editor-dialog.c` (Evolution side) that enumerates the
+chosen account's `CamelStore` (`camel_store_get_folder_info_sync`,
+cached, on a thread) and injects them via
+`sieve_rule_editor_set_mailboxes()` so the `fileinto` action can offer an
+editable dropdown. If you touch the (de)serializer, rerun `meson test`:
+`tests/test-sieve-model.c` checks that the model ⇄ script round-trip is
+stable to the character, including for opaque rules (text copied
+verbatim from another tool), and that only a lexically broken script
+(unclosed brace / string) still makes `sieve_rule_set_parse()` fail.

@@ -1,61 +1,60 @@
 # evolution-sieve-filters
 
-Greffon (module) pour **Evolution** permettant de gérer des filtres
-**Sieve** exécutés côté serveur, via le protocole **ManageSieve**
-([RFC 5804](https://www.rfc-editor.org/rfc/rfc5804)). Il ajoute un éditeur
-de règles (visuel et texte brut) directement dans Evolution, sans passer
-par un outil externe (Roundcube, Nextcloud Mail…) pour gérer ses filtres
-serveur.
+Plugin (module) for **Evolution** to manage server-side **Sieve** filters
+via the **ManageSieve** protocol
+([RFC 5804](https://www.rfc-editor.org/rfc/rfc5804)). It adds a rule
+editor (visual and plain text) directly inside Evolution, without going
+through an external tool (Roundcube, Nextcloud Mail…) to manage server
+filters.
 
 > [!WARNING]
-> Projet en développement actif, pas encore audité en usage réel à
-> grande échelle. Le client ManageSieve et le modèle de règles sont
-> testés de bout en bout (voir [Tests](#tests-et-développement)) ; la
-> partie interface graphique (dialogue, page de compte) n'a été vérifiée
-> que contre un Evolution 3.56 réel de façon limitée — voir
-> [Limites connues](#limites-connues). Faites une sauvegarde de vos
-> scripts Sieve existants avant de les modifier avec ce greffon.
+> Project under active development, not yet audited for large-scale
+> real-world use. The ManageSieve client and the rule model are tested
+> end-to-end (see [Tests](#tests-and-development)); the GUI part (dialog,
+> account page) has only been checked against a real Evolution 3.56 in a
+> limited way — see [Known limitations](#known-limitations). Back up your
+> existing Sieve scripts before modifying them with this plugin.
 
-## Fonctionnalités
+## Features
 
-- **Éditeur visuel** de règles façon « Filtres de messages » d'Evolution :
-  liste de règles, critères (expéditeur, destinataire, sujet, en-tête,
-  taille, corps…) et actions (classer, rediriger, marquer, supprimer,
-  arrêter le traitement…) construits sans écrire de script à la main.
-- **Éditeur texte brut** en repli, pour tout ce que l'éditeur visuel ne
-  représente pas encore (`vacation`, règles écrites à la main, scripts
-  d'autres outils…) — ces règles sont conservées **verbatim** et affichées
-  verrouillées côté éditeur visuel plutôt que d'être perdues ou déformées.
-- **Intégration Evolution** : entrée de menu *Édition → Filtres Sieve…*,
-  entrée de menu contextuel *(clic droit sur un message) → Créer → Créer un
-  filtre Sieve…* (pré-remplit une règle sur l'expéditeur), et une page
-  **« Filtres Sieve »** dans l'éditeur de comptes pour régler la connexion
-  par compte.
-- **Mot de passe au trousseau** (libsecret / Secret Service), jamais stocké
-  en clair ; à défaut, reprise du mot de passe IMAP déjà connu d'Evolution.
-- **Authentification complète** : PLAIN, LOGIN, CRAM-MD5, SCRAM-SHA-1,
-  SCRAM-SHA-256, ainsi qu'OAUTHBEARER / XOAUTH2 pour les comptes OAuth2
-  (Gmail, Office 365…), jeton obtenu et rafraîchi via
+- **Visual editor** for rules, in the style of Evolution's "Message
+  Filters": a list of rules, criteria (sender, recipient, subject,
+  header, size, body…) and actions (file into, forward, mark, delete,
+  stop processing…) built without writing a script by hand.
+- **Plain text editor** as a fallback, for anything the visual editor
+  doesn't represent yet (`vacation`, hand-written rules, scripts from
+  other tools…) — these rules are kept **verbatim** and shown locked in
+  the visual editor rather than being lost or mangled.
+- **Evolution integration**: an *Edit → Sieve Filters…* menu entry, a
+  context menu entry *(right-click a message) → Create → Create Sieve
+  Filter…* (pre-fills a rule based on the sender), and a **"Sieve
+  Filters"** page in the account editor to configure the connection per
+  account.
+- **Password kept in the keyring** (libsecret / Secret Service), never
+  stored in plain text; falling back to the IMAP password already known
+  to Evolution when unset.
+- **Full authentication support**: PLAIN, LOGIN, CRAM-MD5, SCRAM-SHA-1,
+  SCRAM-SHA-256, as well as OAUTHBEARER / XOAUTH2 for OAuth2 accounts
+  (Gmail, Office 365…), with the token obtained and refreshed via
   evolution-data-server.
-- **TLS implicite ou StartTLS**, capacités serveur relues après négociation
-  TLS pour ne jamais faire confiance à une réponse en clair.
-- Cœur du protocole (`sieve-managesieve-client`) **indépendant
-  d'Evolution** (GLib/GIO pur) : testable seul, réutilisable dans un autre
-  projet.
+- **Implicit TLS or StartTLS**, server capabilities re-read after the TLS
+  handshake so a plaintext response is never trusted.
+- Protocol core (`sieve-managesieve-client`) **independent of Evolution**
+  (pure GLib/GIO): testable on its own, reusable in another project.
 
-## Prérequis
+## Requirements
 
-- Evolution ≥ 3.54 avec ses en-têtes de développement (`evolution-dev` /
+- Evolution ≥ 3.54 with its development headers (`evolution-dev` /
   `evolution-devel`, `evolution-data-server-dev`).
-- Un serveur IMAP exposant **ManageSieve** (Dovecot + Pigeonhole est le
-  seul testé en pratique ; le client suit la RFC et devrait donc
-  fonctionner contre Cyrus timsieved et les autres implémentations, mais
-  cela n'a pas été vérifié).
-- GLib/GTK+3, `libgsasl` (≥ 1.10) et `libsecret` (≥ 0.20).
+- An IMAP server exposing **ManageSieve** (Dovecot + Pigeonhole is the
+  only one tested in practice; the client follows the RFC and should
+  therefore work against Cyrus timsieved and other implementations, but
+  this hasn't been verified).
+- GLib/GTK+3, `libgsasl` (≥ 1.10) and `libsecret` (≥ 0.20).
 
 ## Installation
 
-### Depuis les sources
+### From source
 
 ```sh
 meson setup build
@@ -63,17 +62,17 @@ ninja -C build
 sudo meson install -C build
 ```
 
-`meson install` place le module dans le répertoire de modules
-d'Evolution (déduit de `evolution-shell-3.0.pc`). Redémarrez Evolution
-ensuite (`evolution --force-shutdown` puis relancez-le).
+`meson install` places the module in Evolution's module directory
+(derived from `evolution-shell-3.0.pc`). Restart Evolution afterwards
+(`evolution --force-shutdown` then relaunch it).
 
-Si `evolution-shell-3.0.pc` / `evolution-mail-3.0.pc` sont absents, Meson
-ne construit que la bibliothèque cliente ManageSieve et les tests — utile
-pour développer/tester le protocole sans Evolution installé.
+If `evolution-shell-3.0.pc` / `evolution-mail-3.0.pc` are missing, Meson
+only builds the ManageSieve client library and the tests — useful for
+developing/testing the protocol without Evolution installed.
 
-### Paquet Debian/Ubuntu
+### Debian/Ubuntu package
 
-Un squelette de paquetage est fourni dans [`debian/`](debian/) :
+A packaging skeleton is provided in [`debian/`](debian/):
 
 ```sh
 sudo apt build-dep .
@@ -81,81 +80,80 @@ dpkg-buildpackage -us -uc -b
 sudo apt install ../evolution-sieve-filters_*.deb
 ```
 
-## Utilisation
+## Usage
 
-1. **Édition → Comptes**, choisissez un compte IMAP, onglet **Filtres
-   Sieve** : renseignez serveur/port ManageSieve (StartTLS ou TLS
-   implicite) et le nom d'utilisateur ; cochez éventuellement
-   « Se connecter automatiquement à l'ouverture ». Le mot de passe est pris
-   au trousseau ou, à défaut, sur celui du compte IMAP.
-2. **Édition → Filtres Sieve…** ouvre le dialogue : choisissez le compte
-   dans le menu déroulant, la connexion et le chargement du script actif
-   se font automatiquement.
-3. Construisez vos règles dans l'onglet visuel, ou basculez en texte brut
-   pour un contrôle total. **Enregistrer et activer** envoie le script au
-   serveur (`CHECKSCRIPT` puis `PUTSCRIPT`/`SETACTIVE`).
-4. Depuis la liste des messages, clic droit sur un message → **Créer →
-   Créer un filtre Sieve…** pré-remplit une règle sur son expéditeur.
+1. **Edit → Accounts**, pick an IMAP account, **Sieve Filters** tab: fill
+   in the ManageSieve server/port (StartTLS or implicit TLS) and the
+   username; optionally check "Connect automatically on startup". The
+   password is taken from the keyring or, failing that, from the IMAP
+   account's own password.
+2. **Edit → Sieve Filters…** opens the dialog: pick the account from the
+   dropdown, connecting and loading the active script happen
+   automatically.
+3. Build your rules in the visual tab, or switch to plain text for full
+   control. **Save and activate** sends the script to the server
+   (`CHECKSCRIPT` then `PUTSCRIPT`/`SETACTIVE`).
+4. From the message list, right-click a message → **Create → Create
+   Sieve Filter…** pre-fills a rule based on its sender.
 
-## Sécurité
+## Security
 
-- Aucun mot de passe n'est jamais écrit en clair sur disque. Il est rangé
-  dans le trousseau système (Secret Service via `libsecret`), sous un
-  schéma propre au greffon (`net.ipocus.evolution.SieveFilters`).
-- Les capacités serveur annoncées avant `STARTTLS` ne sont **jamais**
-  réutilisées après la négociation TLS (protection contre l'injection de
-  commandes en clair).
-- SASL fort par défaut (négociation automatique du meilleur mécanisme
-  commun ; préférence pour SCRAM). SCRAM-*-PLUS (channel binding) et
-  GSSAPI ne sont pas encore supportés.
+- No password is ever written to disk in plain text. It is kept in the
+  system keyring (Secret Service via `libsecret`), under a schema
+  private to the plugin (`net.ipocus.evolution.SieveFilters`).
+- Server capabilities announced before `STARTTLS` are **never** reused
+  after the TLS handshake (protection against plaintext command
+  injection).
+- Strong SASL by default (automatic negotiation of the best common
+  mechanism; SCRAM preferred). SCRAM-*-PLUS (TLS channel binding) and
+  GSSAPI are not supported yet.
 
 ## Architecture
 
-Le protocole ManageSieve, la couche SASL et le modèle de règles Sieve sont
-des bibliothèques GLib/GIO autonomes, sans dépendance à Evolution, et
-testées indépendamment. Le détail fichier par fichier (rôle de chaque
-module, conventions de code, pièges connus) est documenté dans
-[`AGENTS.md`](AGENTS.md), destiné aussi bien à un⋅e contributeur⋅rice
-humain⋅e qu'à un assistant de code.
+The ManageSieve protocol, the SASL layer and the Sieve rule model are
+self-contained GLib/GIO libraries, with no dependency on Evolution, and
+tested independently. A file-by-file breakdown (role of each module,
+coding conventions, known pitfalls) is documented in
+[`AGENTS.md`](AGENTS.md), aimed at both human contributors and AI coding
+assistants.
 
-## Tests et développement
+## Tests and development
 
 ```sh
 meson setup build
-meson test -C build          # tests unitaires (SASL, modèle de règles,
-                              # config, trousseau — sans réseau)
-tests/dovecot/smoke.sh        # bout-en-bout contre un Dovecot jetable
-tests/secret/smoke.sh         # aller-retour trousseau réel (gnome-keyring jetable)
+meson test -C build          # unit tests (SASL, rule model, config,
+                              # keyring — no network)
+tests/dovecot/smoke.sh        # end-to-end against a disposable Dovecot
+tests/secret/smoke.sh         # real keyring round-trip (disposable gnome-keyring)
 ```
 
-Détails complets (fixtures, options de `test-managesieve`, procédure pour
-un vrai serveur…) : voir [`AGENTS.md`](AGENTS.md).
+Full details (fixtures, `test-managesieve` options, procedure against a
+real server…): see [`AGENTS.md`](AGENTS.md).
 
-## Limites connues
+## Known limitations
 
-- Éditeur visuel : seuls les scripts produits par l'éditeur lui-même (ou
-  d'une structure équivalente simple) sont pleinement éditables. Tout le
-  reste (scripts écrits à la main, `vacation`, blocs générés par d'autres
-  outils, extensions non couvertes) est conservé **verbatim** en règle «
-  opaque », modifiable seulement en texte brut. Pas encore de vrai parseur
-  RFC 5228 complet.
-- Pas de réordonnancement des règles par glisser-déposer, ni d'activation
-  / désactivation individuelle.
-- La partie interface graphique (dialogue, page de compte) n'a été testée
-  que partiellement contre un Evolution réel ; le reste est vérifié à la
-  compilation/liaison dans cet environnement de développement, dépourvu
-  d'Evolution exécutable.
-- Un seul serveur ManageSieve (Dovecot + Pigeonhole) a été testé en
-  pratique.
+- Visual editor: only scripts produced by the editor itself (or an
+  equivalent simple structure) are fully editable. Everything else
+  (hand-written scripts, `vacation`, blocks generated by other tools,
+  unsupported extensions) is kept **verbatim** as an "opaque" rule,
+  editable only in plain text. No full RFC 5228 parser yet.
+- No drag-and-drop rule reordering, nor individual enable/disable of
+  rules.
+- The GUI part (dialog, account page) has only been partially tested
+  against a real Evolution; the rest is only checked at
+  compile/link time in this development environment, which has no
+  runnable Evolution.
+- Only one ManageSieve server (Dovecot + Pigeonhole) has been tested in
+  practice.
 
-## Contribuer
+## Contributing
 
-Les contributions sont bienvenues (issues, pull requests). Avant de
-proposer un changement touchant au protocole ManageSieve, à SASL ou au
-modèle de règles, lancez `meson test` puis `tests/dovecot/smoke.sh` —
-voir [`AGENTS.md`](AGENTS.md) pour le détail des conventions et des
-pièges déjà rencontrés.
+Contributions are welcome (issues, pull requests). Before proposing a
+change touching the ManageSieve protocol, SASL, or the rule model, run
+`meson test` then `tests/dovecot/smoke.sh` — see
+[`AGENTS.md`](AGENTS.md) for the full conventions and pitfalls already
+encountered.
 
-## Licence
+## License
 
 [GPL-3.0-or-later](LICENSE)

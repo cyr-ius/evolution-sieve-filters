@@ -1,4 +1,4 @@
-# Bibliothèque protocole, indépendante d'Evolution : testable seule.
+# Protocol library, independent of Evolution: testable on its own.
 sieve_client_lib = static_library('sieve-managesieve-client',
   'sieve-managesieve-client.c',
   'sieve-sasl.c',
@@ -9,9 +9,9 @@ sieve_client_dep = declare_dependency(
   dependencies: [glib_dep, gio_dep, gsasl_dep],
   include_directories: include_directories('.'))
 
-# Modèle de règles Sieve (critères / actions) + (dé)sérialisation vers un
-# script Sieve. GLib pur, aucune dépendance GTK ni Evolution : testable
-# seul (voir tests/test-sieve-model).
+# Sieve rule model (criteria / actions) + (de)serialization to a Sieve
+# script. Pure GLib, no GTK nor Evolution dependency: testable on its
+# own (see tests/test-sieve-model).
 sieve_model_lib = static_library('sieve-model',
   'sieve-model.c',
   dependencies: [glib_dep])
@@ -21,9 +21,9 @@ sieve_model_dep = declare_dependency(
   dependencies: [glib_dep],
   include_directories: include_directories('.'))
 
-# Auto-découverte du serveur ManageSieve par enregistrement DNS SRV
-# `_sieve._tcp` (RFC 5804 §3). GLib/GIO seul, aucune dépendance GTK ni
-# Evolution : testable seul (voir tests/test-sieve-srv).
+# ManageSieve server auto-discovery via the `_sieve._tcp` DNS SRV record
+# (RFC 5804 §3). GLib/GIO only, no GTK nor Evolution dependency:
+# testable on its own (see tests/test-sieve-srv).
 sieve_srv_lib = static_library('sieve-srv',
   'sieve-srv.c',
   dependencies: [glib_dep, gio_dep])
@@ -33,9 +33,9 @@ sieve_srv_dep = declare_dependency(
   dependencies: [glib_dep, gio_dep],
   include_directories: include_directories('.'))
 
-# Rangement du mot de passe ManageSieve dans le trousseau (libsecret).
-# GLib/GIO + libsecret, aucune dépendance GTK ni Evolution : testable seul
-# (voir tests/test-sieve-secret + tests/secret/smoke.sh).
+# Storing the ManageSieve password in the keyring (libsecret).
+# GLib/GIO + libsecret, no GTK nor Evolution dependency: testable on its
+# own (see tests/test-sieve-secret + tests/secret/smoke.sh).
 sieve_secret_lib = static_library('sieve-secret',
   'sieve-secret.c',
   dependencies: [glib_dep, gio_dep, secret_dep])
@@ -45,9 +45,9 @@ sieve_secret_dep = declare_dependency(
   dependencies: [glib_dep, gio_dep, secret_dep],
   include_directories: include_directories('.'))
 
-# Préférences du greffon (dernier compte choisi + un profil de connexion
-# par compte) rangées dans un GKeyFile sous $XDG_CONFIG_HOME. GLib pur,
-# aucune dépendance GTK ni Evolution : testable seul (tests/test-sieve-config).
+# Plugin preferences (last account chosen + one connection profile per
+# account) stored in a GKeyFile under $XDG_CONFIG_HOME. Pure GLib, no
+# GTK nor Evolution dependency: testable on its own (tests/test-sieve-config).
 sieve_config_lib = static_library('sieve-config',
   'sieve-config.c',
   dependencies: [glib_dep])
@@ -57,8 +57,8 @@ sieve_config_dep = declare_dependency(
   dependencies: [glib_dep],
   include_directories: include_directories('.'))
 
-# Le module Evolution proprement dit ne se construit que si les headers
-# d'Evolution sont présents.
+# The actual Evolution module only builds if Evolution's headers are
+# present.
 if evo_shell_dep.found() and evo_mail_dep.found()
   shared_module('module-sieve-filters',
     'module-sieve-filters.c',

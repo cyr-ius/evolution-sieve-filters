@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: evolution-sieve-filters
-Source: dépôt Git du projet (URL à renseigner une fois le dépôt publié)
+Source: project Git repository (URL to be filled in once the repository is published)
 
 Files: *
 Copyright: 2025-2026 cyr-ius <cyr-ius@ipocus.net>

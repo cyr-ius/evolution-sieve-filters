@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Construit le paquet Debian (source et/ou binaire) d'evolution-sieve-filters
-# à partir du répertoire debian/ à la racine du dépôt.
+# Builds the Debian package (source and/or binary) for evolution-sieve-filters
+# from the debian/ directory at the repo root.
 #
-# Usage : scripts/build-deb.sh [--install-deps] [--binary|--source|--both]
+# Usage: scripts/build-deb.sh [--install-deps] [--binary|--source|--both]
 #
-#   --install-deps   Installe les Build-Depends de debian/control via
-#                     mk-build-deps (paquet devscripts + equivs). Nécessite
-#                     sudo. Inutile dans le devcontainer du projet, qui les
-#                     a déjà toutes (voir .devcontainer/Dockerfile).
-#   --binary         Ne construit que le .deb binaire (défaut).
-#   --source         Ne construit que le paquet source (.dsc/.tar.xz).
-#   --both           Construit source + binaire.
+#   --install-deps   Installs the Build-Depends from debian/control via
+#                     mk-build-deps (devscripts + equivs package). Requires
+#                     sudo. Not needed in the project's devcontainer, which
+#                     already has them all (see .devcontainer/Dockerfile).
+#   --binary         Builds only the binary .deb (default).
+#   --source         Builds only the source package (.dsc/.tar.xz).
+#   --both           Builds both source and binary.
 #
-# Artefacts déposés dans le répertoire parent du dépôt, convention
-# dpkg-buildpackage :
+# Artifacts are dropped in the repo's parent directory, per the
+# dpkg-buildpackage convention:
 #   ../evolution-sieve-filters_<version>_<arch>.deb
 #   ../evolution-sieve-filters_<version>.dsc (+ .tar.xz, .changes, .buildinfo)
 
@@ -22,13 +22,13 @@ cd "$(dirname "$0")/.."
 
 usage() {
   cat <<'EOF'
-Usage : scripts/build-deb.sh [--install-deps] [--binary|--source|--both]
+Usage: scripts/build-deb.sh [--install-deps] [--binary|--source|--both]
 
-  --install-deps   Installe les Build-Depends de debian/control via
-                    mk-build-deps (devscripts + equivs). Nécessite sudo.
-  --binary         Ne construit que le .deb binaire (défaut).
-  --source         Ne construit que le paquet source (.dsc/.tar.xz).
-  --both           Construit source + binaire.
+  --install-deps   Installs the Build-Depends from debian/control via
+                    mk-build-deps (devscripts + equivs). Requires sudo.
+  --binary         Builds only the binary .deb (default).
+  --source         Builds only the source package (.dsc/.tar.xz).
+  --both           Builds both source and binary.
 EOF
 }
 
@@ -42,24 +42,24 @@ while [ $# -gt 0 ]; do
     --source) dpkg_args=(-S) ;;
     --both) dpkg_args=() ;;
     -h|--help) usage; exit 0 ;;
-    *) echo "Option inconnue : $1" >&2; usage; exit 1 ;;
+    *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
   esac
   shift
 done
 
 if [ "$install_deps" -eq 1 ]; then
   command -v mk-build-deps >/dev/null 2>&1 || {
-    echo "mk-build-deps introuvable : installez 'devscripts' et 'equivs'." >&2
+    echo "mk-build-deps not found: install 'devscripts' and 'equivs'." >&2
     exit 1
   }
   sudo mk-build-deps -i -r -t "apt-get -y --no-install-recommends" ./debian/control
 fi
 
 command -v dpkg-buildpackage >/dev/null 2>&1 || {
-  echo "dpkg-buildpackage introuvable : installez 'devscripts' (fournit dpkg-dev)." >&2
+  echo "dpkg-buildpackage not found: install 'devscripts' (provides dpkg-dev)." >&2
   exit 1
 }
 
-# -us -uc : ne signe pas (GPG) le paquet source ni le .changes. Retirez ces
-# deux options pour signer avec votre clé avant de publier.
+# -us -uc: don't sign (GPG) the source package or the .changes file. Remove
+# these two options to sign with your key before publishing.
 exec dpkg-buildpackage "${dpkg_args[@]}" -us -uc

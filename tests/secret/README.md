@@ -1,35 +1,35 @@
-# tests/secret/ — trousseau jetable
+# tests/secret/ — disposable keyring
 
-`smoke.sh` exerce `src/sieve-secret.[ch]` (rangement du mot de passe
-ManageSieve dans le Secret Service via **libsecret**) de bout en bout,
-**sans toucher au trousseau de l'utilisateur** :
+`smoke.sh` exercises `src/sieve-secret.[ch]` (storing the ManageSieve
+password in the Secret Service via **libsecret**) end-to-end,
+**without touching the user's own keyring**:
 
-- un `dbus-run-session` isole un bus de session neuf ;
-- un `gnome-keyring-daemon` jetable y est monté, avec
-  `XDG_DATA_HOME` / `XDG_RUNTIME_DIR` sous `tests/secret/run/`, déverrouillé
-  par un mot de passe bidon ;
-- `build/tests/test-sieve-secret` est relancé dans cet environnement avec
-  `SIEVE_SECRET_REQUIRE_SERVICE=1` : sans service joignable le test
-  **échoue** (au lieu de se mettre en « skip » comme sous `meson test`).
+- a `dbus-run-session` isolates a fresh session bus;
+- a disposable `gnome-keyring-daemon` is brought up in it, with
+  `XDG_DATA_HOME` / `XDG_RUNTIME_DIR` under `tests/secret/run/`, unlocked
+  with a throwaway password;
+- `build/tests/test-sieve-secret` is rerun in that environment with
+  `SIEVE_SECRET_REQUIRE_SERVICE=1`: with no service reachable the test
+  **fails** (instead of skipping like under `meson test`).
 
 ```sh
 meson compile -C build test-sieve-secret
-tests/secret/smoke.sh                 # ou : meson compile -C build secret-smoke
+tests/secret/smoke.sh                 # or: meson compile -C build secret-smoke
 ```
 
-Dépendances (déjà dans l'image du devcontainer) : `dbus`,
-`gnome-keyring`, `libsecret-tools` n'est pas requis.
+Dependencies (already in the devcontainer image): `dbus`,
+`gnome-keyring`; `libsecret-tools` is not required.
 
-## Sans le smoke : `meson test`
+## Without the smoke test: `meson test`
 
-`meson test -C build sieve-secret` lance le même binaire mais **sans**
-Secret Service : il détecte l'absence de service et se met en « skip »
-proprement. C'est voulu — le CI sans session D-Bus reste vert, le smoke
-couvre le vrai aller-retour.
+`meson test -C build sieve-secret` runs the same binary but **without**
+a Secret Service: it detects the missing service and skips cleanly.
+This is intentional — CI without a D-Bus session stays green, the smoke
+test covers the real round-trip.
 
-## Rappel : ce que le greffon range dans le trousseau
+## Reminder: what the plugin stores in the keyring
 
-Schéma `net.ipocus.evolution.SieveFilters`, une entrée par compte
-ManageSieve, indexée par les attributs `protocol=managesieve`, `host`,
-`port`, `user`. C'est un schéma propre au greffon : on ne partage pas
-l'entrée du compte IMAP gérée par evolution-data-server.
+Schema `net.ipocus.evolution.SieveFilters`, one entry per ManageSieve
+account, indexed by the attributes `protocol=managesieve`, `host`,
+`port`, `user`. This is a schema private to the plugin: the IMAP account
+entry managed by evolution-data-server is not shared.

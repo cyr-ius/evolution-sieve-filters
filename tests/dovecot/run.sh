@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 #
-# Dovecot + Pigeonhole (ManageSieve) jetable pour tester le client Sieve
-# sans dépendre d'un serveur externe.
+# Disposable Dovecot + Pigeonhole (ManageSieve) instance for testing the
+# Sieve client without depending on an external server.
 #
-#   tests/dovecot/run.sh              démarre en avant-plan (Ctrl-C pour arrêter)
-#   tests/dovecot/run.sh --daemon     démarre en arrière-plan
-#   tests/dovecot/run.sh --stop       arrête l'instance d'arrière-plan
-#   tests/dovecot/run.sh --reload     recharge la configuration
+#   tests/dovecot/run.sh              starts in the foreground (Ctrl-C to stop)
+#   tests/dovecot/run.sh --daemon     starts in the background
+#   tests/dovecot/run.sh --stop       stops the background instance
+#   tests/dovecot/run.sh --reload     reloads the configuration
 #
-# Écoute sur localhost :
-#   - port 4190 : STARTTLS  (comportement d'un vrai serveur ManageSieve)
-#   - port 4191 : TLS implicite  (mode par défaut de sieve-managesieve-client)
-# Identifiants : testuser / testpass
+# Listens on localhost:
+#   - port 4190: STARTTLS  (behavior of a real ManageSieve server)
+#   - port 4191: implicit TLS  (sieve-managesieve-client's default mode)
+# Credentials: testuser / testpass
 #
-# La première exécution génère un certificat auto-signé (CN/SAN = localhost) et
-# l'ajoute au magasin de CA du conteneur, pour que la validation TLS du client
-# passe sans avoir besoin d'un mode « insecure » (le client n'en a pas).
+# The first run generates a self-signed certificate (CN/SAN = localhost) and
+# adds it to the container's CA store, so the client's TLS validation passes
+# without needing an "insecure" mode (the client has none).
 
 set -euo pipefail
 
@@ -26,19 +26,19 @@ CONF="$RUN/dovecot.conf"
 DOVECOT="$(command -v dovecot || true)"
 [ -x "/usr/sbin/dovecot" ] && DOVECOT="/usr/sbin/dovecot"
 if [ -z "$DOVECOT" ]; then
-  echo "dovecot introuvable — installez :" >&2
+  echo "dovecot not found — install it:" >&2
   echo "  sudo apt-get install -y dovecot-core dovecot-managesieved dovecot-sieve" >&2
   exit 1
 fi
 
 mkdir -p "$RUN/state" "$FIX/mail"
-# Pré-créer le journal en tant qu'utilisateur courant pour qu'il reste lisible
-# (Dovecot tourne en root via sudo et ne ferait sinon qu'un fichier root).
+# Pre-create the log file as the current user so it stays readable
+# (Dovecot runs as root via sudo and would otherwise create a root-owned file).
 touch "$RUN/dovecot.log"
 
-# 1. Certificat auto-signé + confiance au niveau du conteneur.
+# 1. Self-signed certificate + trust at the container level.
 if [ ! -s "$RUN/cert.pem" ] || [ ! -s "$RUN/key.pem" ]; then
-  echo "Génération d'un certificat de test (localhost)…" >&2
+  echo "Generating a test certificate (localhost)…" >&2
   openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
     -keyout "$RUN/key.pem" -out "$RUN/cert.pem" \
     -subj "/CN=localhost" \
@@ -47,12 +47,12 @@ if [ ! -s "$RUN/cert.pem" ] || [ ! -s "$RUN/key.pem" ]; then
   sudo update-ca-certificates >/dev/null
 fi
 
-# 2. Base d'utilisateurs (uid/gid = utilisateur courant : les maildirs restent
-#    accessibles même si le maître Dovecot tourne en root via sudo).
+# 2. User database (uid/gid = current user: the maildirs stay accessible
+#    even though the Dovecot master runs as root via sudo).
 printf 'testuser:{PLAIN}testpass:%s:%s::%s/mail/testuser\n' \
   "$(id -u)" "$(id -g)" "$FIX" > "$RUN/users"
 
-# 3. Configuration, dérivée du gabarit versionné.
+# 3. Configuration, derived from the versioned template.
 sed -e "s#@FIXTURE_DIR@#$FIX#g" \
     -e "s#@UID@#$(id -u)#g" \
     -e "s#@GID@#$(id -g)#g" \
@@ -67,19 +67,19 @@ case "${1:-}" in
     ;;
   --daemon)
     sudo "$DOVECOT" -c "$CONF"
-    echo "Dovecot ManageSieve en arrière-plan — testuser / testpass"
-    echo "  localhost:4190  STARTTLS        localhost:4191  TLS implicite"
+    echo "Dovecot ManageSieve running in the background — testuser / testpass"
+    echo "  localhost:4190  STARTTLS        localhost:4191  implicit TLS"
     echo "  logs   : $RUN/dovecot.log"
-    echo "  arrêt  : $0 --stop"
+    echo "  stop   : $0 --stop"
     ;;
   "")
     echo "Dovecot ManageSieve — testuser / testpass"
-    echo "  localhost:4190  STARTTLS        localhost:4191  TLS implicite"
-    echo "  logs : $RUN/dovecot.log   —   Ctrl-C pour arrêter."
+    echo "  localhost:4190  STARTTLS        localhost:4191  implicit TLS"
+    echo "  logs : $RUN/dovecot.log   —   Ctrl-C to stop."
     exec sudo "$DOVECOT" -F -c "$CONF"
     ;;
   *)
-    echo "argument inconnu : $1" >&2
+    echo "unknown argument: $1" >&2
     exit 2
     ;;
 esac
