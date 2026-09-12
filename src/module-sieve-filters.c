@@ -43,6 +43,7 @@
  */
 
 #include <glib-object.h>
+#include <glib/gi18n-lib.h>
 #include <gmodule.h>
 #include <gtk/gtk.h>
 
@@ -151,7 +152,7 @@ seed_rule_from_message (CamelMimeMessage *message)
       email == NULL || *email == '\0')
     return NULL;
 
-  rule_name = g_strdup_printf ("Message from %s",
+  rule_name = g_strdup_printf (_("Message from %s"),
                                (name != NULL && *name != '\0') ? name : email);
   rule = sieve_rule_new (rule_name);
   g_free (rule_name);
@@ -331,32 +332,32 @@ action_sieve_create_filter_from_message_cb (EUIAction *action,
   g_object_unref (task);
 }
 
-/* No gettext infrastructure in this project (see meson.build): labels
- * are hardcoded in English, like the rest of the plugin's user-facing
- * messages (see AGENTS.md). */
-static const EUIActionEntry sieve_menu_action_entries[] = {
-  { "sieve-manage-filters",
-    NULL,
-    "_Sieve Filters…",
-    NULL,
-    "Manage server-side Sieve mail filters",
-    action_sieve_manage_filters_cb,
-    NULL, NULL, NULL },
-  { "sieve-create-filter-from-message",
-    NULL,
-    "Create a _Sieve Filter…",
-    NULL,
-    "Create a server-side Sieve rule from the selected message's sender",
-    action_sieve_create_filter_from_message_cb,
-    NULL, NULL, NULL }
-};
-
 static void
 sieve_menu_extension_constructed (GObject *object)
 {
   EExtension *extension = E_EXTENSION (object);
   EShellView *shell_view;
   EUIManager *ui_manager;
+  /* Labels/tooltips are translated with _(): a "static const" array
+   * initializer must be a compile-time constant, which a gettext lookup
+   * is not, so this table is built here (function scope) rather than at
+   * file scope. */
+  const EUIActionEntry sieve_menu_action_entries[] = {
+    { "sieve-manage-filters",
+      NULL,
+      _("_Sieve Filters…"),
+      NULL,
+      _("Manage server-side Sieve mail filters"),
+      action_sieve_manage_filters_cb,
+      NULL, NULL, NULL },
+    { "sieve-create-filter-from-message",
+      NULL,
+      _("Create a _Sieve Filter…"),
+      NULL,
+      _("Create a server-side Sieve rule from the selected message's sender"),
+      action_sieve_create_filter_from_message_cb,
+      NULL, NULL, NULL }
+  };
 
   G_OBJECT_CLASS (sieve_menu_extension_parent_class)->constructed (object);
 
@@ -432,6 +433,9 @@ sieve_menu_extension_init (SieveMenuExtension *self)
 void
 e_module_load (GTypeModule *type_module)
 {
+  bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
+  bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
+
   sieve_menu_extension_register_type (type_module);
   /* "Sieve Filters" page of the account editor (Edit -> Accounts): the
    * account's ManageSieve connection settings. Rule editing itself is

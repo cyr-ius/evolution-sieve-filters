@@ -2,14 +2,25 @@
 build/
 build-*/
 
+# Gabarit gettext régénéré par Meson (po/meson.build) -- pas de source,
+# juste un intermédiaire pour mettre à jour po/*.po (voir AGENTS.md).
+/po/*.pot
+
 # Artefacts de paquetage Debian (dpkg-buildpackage construit dans le dépôt)
 /debian/.debhelper/
 /debian/*.substvars
 /debian/*.debhelper.log
+/debian/debhelper-build-stamp
 /debian/files
 /debian/evolution-sieve-filters/
+/debian/evolution-sieve-filters-dbgsym/
 /debian/tmp/
+/obj-*/
 /dist/
+
+# Sous-produit observé de la validation gettext de Meson lors du paquetage
+# (msgfmt sans -o explicite) -- inoffensif, jamais une source.
+/messages.mo
 
 # État d'exécution des fixtures de test (Dovecot jetable)
 /tests/dovecot/run/

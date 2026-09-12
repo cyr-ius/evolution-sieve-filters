@@ -4,6 +4,8 @@
 
 #include <string.h>
 
+#include <glib/gi18n-lib.h>
+
 #include <gtk/gtk.h>
 #include <libedataserver/libedataserver.h>
 #include <libemail-engine/libemail-engine.h>   /* EMailSession */
@@ -24,9 +26,9 @@
  * the style of the "Receiving Email" page). Used to be an intro
  * paragraph. */
 #define SIEVE_CONFIG_PAGE_DESCRIPTION \
-  "Connection settings for this account's Sieve filter server " \
-  "(ManageSieve). If left blank, the receiving server's settings are " \
-  "used as defaults. Rule editing is done in Edit -> Sieve Filters."
+  _("Connection settings for this account's Sieve filter server " \
+    "(ManageSieve). If left blank, the receiving server's settings are " \
+    "used as defaults. Rule editing is done in Edit -> Sieve Filters.")
 
 /* ------------------------------------------------------------------ *
  *  The page: a GtkScrolledWindow implementing EMailConfigPage         *
@@ -264,8 +266,8 @@ sieve_config_page_forget_password (GtkButton *button, gpointer user_data)
   gtk_widget_hide (self->forget_button);
   gtk_widget_grab_focus (self->password_entry);
   gtk_label_set_text (GTK_LABEL (self->forget_status),
-                      "Keyring entry cleared — enter a password "
-                      "(it will be stored on \"Apply\").");
+                      _("Keyring entry cleared — enter a password "
+                        "(it will be stored on \"Apply\")."));
 }
 
 /* --- "Connectivity" section: "Test" button --------------------------- *
@@ -412,17 +414,17 @@ test_conn_done (GObject *source, GAsyncResult *res, gpointer user_data)
   g_clear_object (&self->test_cancellable);
 
   if (error != NULL) {
-    g_autofree gchar *msg = g_strdup_printf ("Failed: %s", error->message);
+    g_autofree gchar *msg = g_strdup_printf (_("Failed: %s"), error->message);
     gtk_label_set_text (GTK_LABEL (self->test_status), msg);
     g_error_free (error);
   } else if (mech != NULL && *mech != '\0') {
     g_autofree gchar *msg =
-      g_strdup_printf ("Connection and authentication succeeded "
-                       "(SASL mechanism: %s).", mech);
+      g_strdup_printf (_("Connection and authentication succeeded "
+                         "(SASL mechanism: %s)."), mech);
     gtk_label_set_text (GTK_LABEL (self->test_status), msg);
   } else {
     gtk_label_set_text (GTK_LABEL (self->test_status),
-                        "Connection and authentication succeeded.");
+                        _("Connection and authentication succeeded."));
   }
 
   g_free (mech);
@@ -447,7 +449,7 @@ sieve_config_page_test_clicked (GtkButton *button, gpointer user_data)
 
   if (host == NULL || *host == '\0') {
     gtk_label_set_text (GTK_LABEL (self->test_status),
-                        "Please enter the server address first.");
+                        _("Please enter the server address first."));
     return;
   }
 
@@ -474,7 +476,7 @@ sieve_config_page_test_clicked (GtkButton *button, gpointer user_data)
 
   self->test_in_flight = TRUE;
   gtk_widget_set_sensitive (self->test_button, FALSE);
-  gtk_label_set_text (GTK_LABEL (self->test_status), "Testing...");
+  gtk_label_set_text (GTK_LABEL (self->test_status), _("Testing..."));
 
   self->test_cancellable = g_cancellable_new ();
   task = g_task_new (NULL, self->test_cancellable, test_conn_done,
@@ -558,7 +560,7 @@ sieve_config_page_commit_changes (EMailConfigPage *page,
 static void
 sieve_config_page_iface_init (EMailConfigPageInterface *iface)
 {
-  iface->title = "Sieve Filters";
+  iface->title = _("Sieve Filters");
   iface->sort_order = SIEVE_CONFIG_PAGE_SORT_ORDER;
   iface->page_type = GTK_ASSISTANT_PAGE_CONTENT;
   iface->setup_defaults = sieve_config_page_setup_defaults;
@@ -642,13 +644,13 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
   gtk_grid_set_column_spacing (GTK_GRID (header_grid), 12);
   gtk_widget_set_margin_bottom (header_grid, 6);
 
-  type_label = gtk_label_new ("Server Type:");
+  type_label = gtk_label_new (_("Server Type:"));
   gtk_label_set_xalign (GTK_LABEL (type_label), 1.0);
   type_value = gtk_label_new (NULL);
   gtk_label_set_markup (GTK_LABEL (type_value), "<b>SIEVE</b>");
   gtk_label_set_xalign (GTK_LABEL (type_value), 0.0);
 
-  desc_label = gtk_label_new ("Description:");
+  desc_label = gtk_label_new (_("Description:"));
   gtk_label_set_xalign (GTK_LABEL (desc_label), 1.0);
   gtk_widget_set_valign (desc_label, GTK_ALIGN_START);
   desc_value = gtk_label_new (SIEVE_CONFIG_PAGE_DESCRIPTION);
@@ -677,53 +679,53 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
 
   self->encryption_combo = gtk_combo_box_text_new ();
   gtk_combo_box_text_insert_text (GTK_COMBO_BOX_TEXT (self->encryption_combo),
-                                  SIEVE_ENC_STARTTLS, "STARTTLS after connecting");
+                                  SIEVE_ENC_STARTTLS, _("STARTTLS after connecting"));
   gtk_combo_box_text_insert_text (GTK_COMBO_BOX_TEXT (self->encryption_combo),
-                                  SIEVE_ENC_IMPLICIT, "TLS on a dedicated port");
+                                  SIEVE_ENC_IMPLICIT, _("TLS on a dedicated port"));
   gtk_widget_set_halign (self->encryption_combo, GTK_ALIGN_START);
 
-  self->password_label = gtk_label_new ("Password:");
+  self->password_label = gtk_label_new (_("Password:"));
   gtk_label_set_xalign (GTK_LABEL (self->password_label), 1.0);
   self->password_entry = gtk_entry_new ();
   gtk_entry_set_visibility (GTK_ENTRY (self->password_entry), FALSE);
   gtk_widget_set_hexpand (self->password_entry, TRUE);
   gtk_entry_set_placeholder_text (GTK_ENTRY (self->password_entry),
-                                  "new password");
+                                  _("new password"));
   /* Field + label hidden by default: gtk_widget_show_all must not
    * reveal them; only a click on "Forget Password" shows them
    * (load_fields hides them again on every (re)opening). */
   gtk_widget_set_no_show_all (self->password_label, TRUE);
   gtk_widget_set_no_show_all (self->password_entry, TRUE);
   self->forget_button =
-    gtk_button_new_with_label ("Forget Password");
+    gtk_button_new_with_label (_("Forget Password"));
   gtk_widget_set_halign (self->forget_button, GTK_ALIGN_START);
   gtk_widget_set_tooltip_text (
     self->forget_button,
-    "Clears the password stored in the keyring for this account "
-    "(no effect if there is none) and shows the field to enter a "
-    "new one.");
+    _("Clears the password stored in the keyring for this account "
+      "(no effect if there is none) and shows the field to enter a "
+      "new one."));
   self->forget_status = gtk_label_new ("");
   gtk_label_set_xalign (GTK_LABEL (self->forget_status), 0.0);
   gtk_label_set_line_wrap (GTK_LABEL (self->forget_status), TRUE);
   self->auto_connect_check =
-    gtk_check_button_new_with_label ("Connect automatically on open");
+    gtk_check_button_new_with_label (_("Connect automatically on open"));
 
   if (self->account_is_oauth2) {
     /* Token managed by Evolution: no password to enter or store. Hide
      * the "Forget" button and explain it in the status line. */
     gtk_widget_set_no_show_all (self->forget_button, TRUE);
     gtk_label_set_text (GTK_LABEL (self->forget_status),
-                        "OAuth2: access token managed by Evolution, "
-                        "no password to enter.");
+                        _("OAuth2: access token managed by Evolution, "
+                          "no password to enter."));
   }
 
   /* "Configuration" section: server + port, then "Connect
    * automatically" right below the server field. */
-  add_section_header (GTK_BOX (content), "Configuration", 0);
+  add_section_header (GTK_BOX (content), _("Configuration"), 0);
   grid = add_section_grid (GTK_BOX (content));
 
-  add_field (GTK_GRID (grid), 0, "Server:", self->host_entry, 1);
-  port_label = gtk_label_new ("Port:");
+  add_field (GTK_GRID (grid), 0, _("Server:"), self->host_entry, 1);
+  port_label = gtk_label_new (_("Port:"));
   gtk_label_set_xalign (GTK_LABEL (port_label), 1.0);
   gtk_grid_attach (GTK_GRID (grid), port_label, 2, 0, 1, 1);
   gtk_grid_attach (GTK_GRID (grid), self->port_spin, 3, 0, 1, 1);
@@ -731,9 +733,9 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
   gtk_grid_attach (GTK_GRID (grid), self->auto_connect_check, 1, 1, 3, 1);
 
   /* "Security" section. */
-  add_section_header (GTK_BOX (content), "Security", 0);
+  add_section_header (GTK_BOX (content), _("Security"), 0);
   grid = add_section_grid (GTK_BOX (content));
-  add_field (GTK_GRID (grid), 0, "Encryption method:",
+  add_field (GTK_GRID (grid), 0, _("Encryption method:"),
              self->encryption_combo, 1);
 
   /* "Authentication" section: login, then — on the same line — the
@@ -741,9 +743,9 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
    * preceded by its "Password:" label (after clicking "Forget").
    * Everything aligned in column 1 like the login; status line
    * below. */
-  add_section_header (GTK_BOX (content), "Authentication", 0);
+  add_section_header (GTK_BOX (content), _("Authentication"), 0);
   grid = add_section_grid (GTK_BOX (content));
-  add_field (GTK_GRID (grid), 0, "Username:", self->user_entry, 3);
+  add_field (GTK_GRID (grid), 0, _("Username:"), self->user_entry, 3);
   gtk_grid_attach (GTK_GRID (grid), self->password_label, 0, 1, 1, 1);
   {
     GtkWidget *auth_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
@@ -765,14 +767,14 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
    * line's height; without this compensation the spacing before
    * "Connectivity" looks larger than that of the "Security" /
    * "Authentication" sections. */
-  add_section_header (GTK_BOX (content), "Connectivity", 0);
+  add_section_header (GTK_BOX (content), _("Connectivity"), 0);
   grid = add_section_grid (GTK_BOX (content));
-  self->test_button = gtk_button_new_with_label ("Test");
+  self->test_button = gtk_button_new_with_label (_("Test"));
   gtk_widget_set_halign (self->test_button, GTK_ALIGN_START);
   gtk_widget_set_tooltip_text (
     self->test_button,
-    "Attempts a connection and authentication to the ManageSieve "
-    "server with the settings above, without saving them.");
+    _("Attempts a connection and authentication to the ManageSieve "
+      "server with the settings above, without saving them."));
   gtk_grid_attach (GTK_GRID (grid), self->test_button, 0, 0, 2, 1);
   self->test_status = gtk_label_new ("");
   gtk_label_set_xalign (GTK_LABEL (self->test_status), 0.0);

@@ -48,6 +48,8 @@
 
 #include <string.h>
 
+#include <glib/gi18n-lib.h>
+
 #include <shell/e-shell.h>
 #include <mail/e-mail-backend.h>       /* EMailBackend, e_mail_backend_get_session */
 #include <camel/camel.h>              /* CamelStore, camel_store_get_folder_info_sync */
@@ -117,12 +119,14 @@ static void
 update_connect_state (SieveEditorState *state)
 {
   gboolean connected = (state->client != NULL);
-
-  gtk_label_set_markup (
-    GTK_LABEL (state->conn_indicator),
+  gchar *markup = g_strdup_printf (
     connected
-      ? "<span foreground=\"#2e7d32\" weight=\"bold\">●</span> Connected"
-      : "<span foreground=\"#c62828\" weight=\"bold\">●</span> Not connected");
+      ? "<span foreground=\"#2e7d32\" weight=\"bold\">●</span> %s"
+      : "<span foreground=\"#c62828\" weight=\"bold\">●</span> %s",
+    connected ? _("Connected") : _("Not connected"));
+
+  gtk_label_set_markup (GTK_LABEL (state->conn_indicator), markup);
+  g_free (markup);
 }
 
 /* TRUE if the currently selected account has a usable ManageSieve
@@ -324,8 +328,8 @@ start_mailbox_fetch (SieveEditorState *state, const gchar *source_uid)
 /* Message shown when the chosen account has no ManageSieve server
  * configured: the user must go through the account editor. */
 #define SIEVE_NO_PROFILE_HINT                                              \
-  "No ManageSieve server configured for this account. Set it up in "     \
-  "Edit → Accounts → this account → \"Sieve Filters\" tab."
+  _("No ManageSieve server configured for this account. Set it up in "    \
+    "Edit → Accounts → this account → \"Sieve Filters\" tab.")
 
 static void
 on_account_changed (GtkComboBox *combo, SieveEditorState *state)
@@ -344,7 +348,7 @@ on_account_changed (GtkComboBox *combo, SieveEditorState *state)
       g_clear_pointer (&state->active_script_name, g_free);
       gtk_widget_set_sensitive (state->save_button, FALSE);
       update_connect_state (state);
-      set_status (state, "Disconnected.");
+      set_status (state, _("Disconnected."));
     }
     update_reload_sensitive (state);
     start_mailbox_fetch (state, NULL); /* "fileinto" field back to free entry */
@@ -388,14 +392,14 @@ populate_account_combo (SieveEditorState *state)
 {
   GList *link;
 
-  gtk_combo_box_text_append_text (state->account_combo, "— Choose an account —");
+  gtk_combo_box_text_append_text (state->account_combo, _("— Choose an account —"));
 
   state->accounts = sieve_account_list (state->registry);
   for (link = state->accounts; link != NULL; link = link->next) {
     SieveAccountInfo *info = link->data;
     gchar *label = g_strdup_printf ("%s  (%s)",
                                     info->display_name != NULL
-                                      ? info->display_name : "(unnamed)",
+                                      ? info->display_name : _("(unnamed)"),
                                     info->host);
     gtk_combo_box_text_append_text (state->account_combo, label);
     g_free (label);
@@ -407,8 +411,8 @@ populate_account_combo (SieveEditorState *state)
     gtk_widget_set_tooltip_text (
       GTK_WIDGET (state->account_combo),
       state->registry == NULL
-        ? "Account registry unavailable."
-        : "No mail account with a server.");
+        ? _("Account registry unavailable.")
+        : _("No mail account with a server."));
   }
 }
 
@@ -479,11 +483,11 @@ apply_script_to_ui (SieveEditorState *state, const gchar *content,
   state->syncing = TRUE;
   if (sync_text_to_visual (state, &verror)) {
     gtk_stack_set_visible_child_name (GTK_STACK (state->stack), "visuel");
-    base = g_strdup_printf ("%s — visual editing available.", ok_prefix);
+    base = g_strdup_printf (_("%s — visual editing available."), ok_prefix);
   } else {
     gtk_stack_set_visible_child_name (GTK_STACK (state->stack), "texte");
-    base = g_strdup_printf ("%s as raw text "
-                            "(visual editing unavailable: %s).",
+    base = g_strdup_printf (_("%s as raw text "
+                              "(visual editing unavailable: %s)."),
                             ok_prefix, verror->message);
     g_clear_error (&verror);
   }
@@ -522,8 +526,8 @@ inject_seed_rule (SieveEditorState *state)
     state->seed_injected = TRUE;
     g_clear_pointer (&state->seed_rule, sieve_rule_free);
     set_status (state,
-                "The server's script has a syntax error: fix it in "
-                "\"Raw text\", then add the rule by hand.");
+                _("The server's script has a syntax error: fix it in "
+                  "\"Raw text\", then add the rule by hand."));
     return;
   }
 
@@ -550,9 +554,9 @@ inject_seed_rule (SieveEditorState *state)
   sieve_rule_editor_select_rule (SIEVE_RULE_EDITOR (state->rule_editor),
                                  seed_index);
   set_status (state,
-              "Rule pre-filled from the message (selected on the right): "
-              "complete the action — e.g. \"File into\" — then "
-              "\"Save\".");
+              _("Rule pre-filled from the message (selected on the right): "
+                "complete the action — e.g. \"File into\" — then "
+                "\"Save\"."));
 }
 
 /* ---- Lifecycle of a network operation (cancellation / errors) ------- */
@@ -613,7 +617,7 @@ on_cancel_clicked (GtkButton *button, SieveEditorState *state)
     return;
   g_cancellable_cancel (state->op_cancellable);
   gtk_widget_set_sensitive (state->cancel_button, FALSE);
-  set_status (state, "Cancelling…");
+  set_status (state, _("Cancelling…"));
 }
 
 /* TRUE if the error reflects a cancellation requested by the user. */
@@ -716,8 +720,8 @@ fetch_active_script (SieveManageSieveClient *client, gchar **out_active,
       return FALSE;
     }
   } else {
-    content = g_strdup ("# No active script yet.\n"
-                         "# Type your Sieve script then \"Save\".\n");
+    content = g_strdup (_("# No active script yet.\n"
+                           "# Type your Sieve script then \"Save\".\n"));
   }
 
   *out_active = active;
@@ -776,7 +780,7 @@ connect_task_run (GTask *task, gpointer source_object, gpointer task_data,
         goto fail;
     }
 
-    keyring_note = g_strdup ("OAuth2 authentication (token supplied by Evolution).");
+    keyring_note = g_strdup (_("OAuth2 authentication (token supplied by Evolution)."));
   } else {
     /* Password resolution, in order of preference:
      *   1. the one entered in the field;
@@ -822,7 +826,7 @@ connect_task_run (GTask *task, gpointer source_object, gpointer task_data,
      * populates the plugin's own keyring (and the "Forget" button
      * removes it from there). */
     if (from_eds_keyring)
-      keyring_note = g_strdup ("Password reused from the Evolution account.");
+      keyring_note = g_strdup (_("Password reused from the Evolution account."));
     effective_pw = NULL; /* may point at keyring_pw / eds_pw, freed right after */
     if (keyring_pw != NULL) {
       sieve_secret_password_free (keyring_pw);
@@ -889,9 +893,9 @@ connect_task_done (GObject *source, GAsyncResult *res, gpointer user_data)
     gtk_widget_set_sensitive (state->save_button, FALSE);
 
     if (error_is_cancelled (error)) {
-      set_status (state, "Connection cancelled.");
+      set_status (state, _("Connection cancelled."));
     } else {
-      gchar *msg = g_strdup_printf ("Connection failed: %s", error->message);
+      gchar *msg = g_strdup_printf (_("Connection failed: %s"), error->message);
       set_status (state, msg);
       g_free (msg);
     }
@@ -903,7 +907,7 @@ connect_task_done (GObject *source, GAsyncResult *res, gpointer user_data)
       gchar *hint;
       inject_seed_rule (state);
       hint = g_strconcat (gtk_label_get_text (state->status_label),
-                          " (offline: use \"Reload rules\" to send it.)",
+                          _(" (offline: use \"Reload rules\" to send it.)"),
                           NULL);
       set_status (state, hint);
       g_free (hint);
@@ -929,7 +933,7 @@ connect_task_done (GObject *source, GAsyncResult *res, gpointer user_data)
   /* Attempt visual editing; if the loaded script is beyond what the
    * editor can represent, stay on the raw text tab. */
   apply_script_to_ui (state, result->script_content,
-                      "Connected. Script loaded", result->keyring_note);
+                      _("Connected. Script loaded"), result->keyring_note);
 
   /* "Seeded" mode (context menu): the server's script is loaded, now add
    * the rule pre-filled from the message on top of it. */
@@ -957,7 +961,7 @@ start_connect (SieveEditorState *state)
 
   active = gtk_combo_box_get_active (GTK_COMBO_BOX (state->account_combo));
   if (active <= 0) {
-    set_status (state, "Choose an account first.");
+    set_status (state, _("Choose an account first."));
     return;
   }
   info = g_list_nth_data (state->accounts, active - 1);
@@ -1010,8 +1014,8 @@ start_connect (SieveEditorState *state)
   }
 
   op_begin (state, in->use_oauth2
-                     ? "Connecting via OAuth2… (token requested from Evolution)"
-                     : "Connecting… (\"Cancel\" to interrupt)");
+                     ? _("Connecting via OAuth2… (token requested from Evolution)")
+                     : _("Connecting… (\"Cancel\" to interrupt)"));
 
   task = g_task_new (NULL, state->op_cancellable, connect_task_done, state);
   g_task_set_task_data (task, in, (GDestroyNotify) connect_task_input_free);
@@ -1077,12 +1081,12 @@ reload_task_done (GObject *source, GAsyncResult *res, gpointer user_data)
 
   if (result == NULL) {
     if (error_is_cancelled (error)) {
-      set_status (state, "Reload cancelled.");
+      set_status (state, _("Reload cancelled."));
     } else if (error_is_fatal_for_session (error)) {
       /* Connection lost: the session is no longer reliable. "Reload
        * rules" will start a fresh connection. */
-      gchar *msg = g_strdup_printf ("Connection lost during reload: %s. "
-                                    "Use \"Reload rules\" to retry the connection.",
+      gchar *msg = g_strdup_printf (_("Connection lost during reload: %s. "
+                                      "Use \"Reload rules\" to retry the connection."),
                                     error->message);
       set_status (state, msg);
       g_free (msg);
@@ -1092,7 +1096,7 @@ reload_task_done (GObject *source, GAsyncResult *res, gpointer user_data)
       update_reload_sensitive (state);
       update_connect_state (state);
     } else {
-      gchar *msg = g_strdup_printf ("Reload failed: %s", error->message);
+      gchar *msg = g_strdup_printf (_("Reload failed: %s"), error->message);
       set_status (state, msg);
       g_free (msg);
     }
@@ -1105,7 +1109,7 @@ reload_task_done (GObject *source, GAsyncResult *res, gpointer user_data)
   result->active_name = NULL;
 
   apply_script_to_ui (state, result->script_content,
-                      "Rules reloaded from the server", NULL);
+                      _("Rules reloaded from the server"), NULL);
 
   reload_task_result_free (result);
 }
@@ -1123,7 +1127,7 @@ start_reload (SieveEditorState *state)
   if (state->op_in_flight || state->client == NULL)
     return;
 
-  op_begin (state, "Reloading rules… (\"Cancel\" to interrupt)");
+  op_begin (state, _("Reloading rules… (\"Cancel\" to interrupt)"));
 
   task = g_task_new (NULL, state->op_cancellable, reload_task_done, state);
   g_task_set_task_data (task, state->client, NULL);
@@ -1160,13 +1164,13 @@ on_rule_editor_refresh (GtkWidget *editor, SieveEditorState *state)
     GTK_WINDOW (state->dialog),
     GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
     GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE,
-    "Reload rules from the server?");
+    "%s", _("Reload rules from the server?"));
   gtk_message_dialog_format_secondary_text (
     GTK_MESSAGE_DIALOG (confirm),
-    "Unsaved changes will be lost.");
+    "%s", _("Unsaved changes will be lost."));
   gtk_dialog_add_buttons (GTK_DIALOG (confirm),
-                          "_Cancel", GTK_RESPONSE_CANCEL,
-                          "_Reload", GTK_RESPONSE_ACCEPT, NULL);
+                          _("_Cancel"), GTK_RESPONSE_CANCEL,
+                          _("_Reload"), GTK_RESPONSE_ACCEPT, NULL);
   gtk_dialog_set_default_response (GTK_DIALOG (confirm), GTK_RESPONSE_CANCEL);
   resp = gtk_dialog_run (GTK_DIALOG (confirm));
   gtk_widget_destroy (confirm);
@@ -1223,18 +1227,18 @@ save_task_done (GObject *source, GAsyncResult *res, gpointer user_data)
   }
 
   if (ok) {
-    set_status (state, "Script saved and activated.");
+    set_status (state, _("Script saved and activated."));
     return;
   }
 
   if (error_is_cancelled (error)) {
-    set_status (state, "Save cancelled — the script may not have been "
-                       "fully transmitted; check on the server.");
+    set_status (state, _("Save cancelled — the script may not have been "
+                         "fully transmitted; check on the server."));
   } else if (error_is_fatal_for_session (error)) {
     /* Connection lost / timed out while sending: the session is no
      * longer reliable. "Reload rules" will start a fresh connection. */
-    gchar *msg = g_strdup_printf ("Connection lost during save: %s. "
-                                  "Use \"Reload rules\" to retry the connection.",
+    gchar *msg = g_strdup_printf (_("Connection lost during save: %s. "
+                                    "Use \"Reload rules\" to retry the connection."),
                                   error->message);
     set_status (state, msg);
     g_free (msg);
@@ -1244,7 +1248,7 @@ save_task_done (GObject *source, GAsyncResult *res, gpointer user_data)
     update_reload_sensitive (state);
     update_connect_state (state);
   } else {
-    gchar *msg = g_strdup_printf ("Save failed: %s", error->message);
+    gchar *msg = g_strdup_printf (_("Save failed: %s"), error->message);
     set_status (state, msg);
     g_free (msg);
   }
@@ -1263,8 +1267,8 @@ on_save_clicked (GtkButton *button, SieveEditorState *state)
     return;
 
   if (state->client == NULL) {
-    set_status (state, "No session: use \"Reload rules\" to "
-                       "(re)connect first.");
+    set_status (state, _("No session: use \"Reload rules\" to "
+                         "(re)connect first."));
     return;
   }
 
@@ -1290,7 +1294,7 @@ on_save_clicked (GtkButton *button, SieveEditorState *state)
   in->content = gtk_text_buffer_get_text (buf, &start, &end, FALSE);
 
   (void) button;
-  op_begin (state, "Saving… (\"Cancel\" to interrupt)");
+  op_begin (state, _("Saving… (\"Cancel\" to interrupt)"));
 
   task = g_task_new (NULL, state->op_cancellable, save_task_done, state);
   g_task_set_task_data (task, in, (GDestroyNotify) save_task_input_free);
@@ -1326,8 +1330,8 @@ on_stack_switch (GObject *object, GParamSpec *pspec, SieveEditorState *state)
 
     state->syncing = TRUE;
     if (!sync_text_to_visual (state, &error)) {
-      gchar *msg = g_strdup_printf ("Visual editing unavailable: %s. "
-                                    "The script remains editable as raw text.",
+      gchar *msg = g_strdup_printf (_("Visual editing unavailable: %s. "
+                                      "The script remains editable as raw text."),
                                     error->message);
       set_status (state, msg);
       g_free (msg);
@@ -1430,11 +1434,11 @@ apply_saved_config (SieveEditorState *state)
 
   if (cfg->host != NULL && *cfg->host != '\0') {
     if (cfg->auto_connect && eff_user != NULL && *eff_user != '\0') {
-      set_status (state, "Auto-reconnecting to the last account…");
+      set_status (state, _("Auto-reconnecting to the last account…"));
       start_connect (state);
     } else {
       set_status (state,
-                  "Account ready: use \"Reload rules\" to open the session.");
+                  _("Account ready: use \"Reload rules\" to open the session."));
     }
   } else {
     set_status (state, SIEVE_NO_PROFILE_HINT);
@@ -1491,7 +1495,7 @@ apply_seed_config (SieveEditorState *state)
                                 : (info->user != NULL ? info->user : NULL);
 
       if (eff_user != NULL && *eff_user != '\0') {
-        set_status (state, "Connecting to the message's account…");
+        set_status (state, _("Connecting to the message's account…"));
         start_connect (state);
         sieve_config_free (cfg);
         return;   /* inject_seed_rule will be called by connect_task_done */
@@ -1509,10 +1513,10 @@ apply_seed_config (SieveEditorState *state)
   if (state->seed_injected) {
     const gchar *hint =
       (idx == 0)
-        ? " Choose the relevant account, then \"Reload rules\"."
-        : " Configure this account's ManageSieve server in "
-          "Edit → Accounts → \"Sieve Filters\" tab, then "
-          "\"Reload rules\".";
+        ? _(" Choose the relevant account, then \"Reload rules\".")
+        : _(" Configure this account's ManageSieve server in "
+            "Edit → Accounts → \"Sieve Filters\" tab, then "
+            "\"Reload rules\".");
     gchar *full = g_strconcat (gtk_label_get_text (state->status_label), hint, NULL);
     set_status (state, full);
     g_free (full);
@@ -1592,7 +1596,7 @@ sieve_editor_dialog_new_with_seed (GtkWindow   *parent,
   }
 
   dialog = g_object_new (GTK_TYPE_DIALOG,
-                         "title", "Sieve Filters",
+                         "title", _("Sieve Filters"),
                          "destroy-with-parent", TRUE,
                          NULL);
   if (parent != NULL)
@@ -1607,24 +1611,24 @@ sieve_editor_dialog_new_with_seed (GtkWindow   *parent,
   gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
   gtk_container_set_border_width (GTK_CONTAINER (grid), 12);
 
-  account_label = gtk_label_new ("Account:");
+  account_label = gtk_label_new (_("Account:"));
   state->account_combo = GTK_COMBO_BOX_TEXT (gtk_combo_box_text_new ());
   gtk_widget_set_hexpand (GTK_WIDGET (state->account_combo), TRUE);
   gtk_widget_set_tooltip_text (
     GTK_WIDGET (state->account_combo),
-    "Connection settings (server, port, encryption, username, "
-    "password, auto-connect) are configured per account in "
-    "Edit → Accounts, \"Sieve Filters\" tab.");
+    _("Connection settings (server, port, encryption, username, "
+      "password, auto-connect) are configured per account in "
+      "Edit → Accounts, \"Sieve Filters\" tab."));
 
   state->conn_indicator = gtk_label_new (NULL);
   gtk_widget_set_halign (state->conn_indicator, GTK_ALIGN_START);
   gtk_widget_set_margin_start (state->conn_indicator, 6);
   gtk_widget_set_tooltip_text (
     state->conn_indicator,
-    "ManageSieve session status. There is no Connect button: the "
-    "connection opens automatically on open (if the account is set up "
-    "for it); otherwise use the visual editor's \"Reload rules\" to "
-    "(re)connect.");
+    _("ManageSieve session status. There is no Connect button: the "
+      "connection opens automatically on open (if the account is set up "
+      "for it); otherwise use the visual editor's \"Reload rules\" to "
+      "(re)connect."));
 
   /* Status indicator on the same row as the account, last column. */
   gtk_grid_attach (GTK_GRID (grid), account_label, 0, row, 1, 1);
@@ -1647,13 +1651,13 @@ sieve_editor_dialog_new_with_seed (GtkWindow   *parent,
 
   state->rule_editor = sieve_rule_editor_new ();
   gtk_stack_add_titled (GTK_STACK (state->stack), state->rule_editor,
-                        "visuel", "Visual editor");
+                        "visuel", _("Visual editor"));
 
   scrolled = gtk_scrolled_window_new (NULL, NULL);
   state->script_view = GTK_TEXT_VIEW (gtk_text_view_new ());
   gtk_text_view_set_monospace (state->script_view, TRUE);
   gtk_container_add (GTK_CONTAINER (scrolled), GTK_WIDGET (state->script_view));
-  gtk_stack_add_titled (GTK_STACK (state->stack), scrolled, "texte", "Raw text");
+  gtk_stack_add_titled (GTK_STACK (state->stack), scrolled, "texte", _("Raw text"));
 
   gtk_widget_set_vexpand (state->stack, TRUE);
   gtk_widget_set_margin_start (state->stack, 12);
@@ -1687,14 +1691,14 @@ sieve_editor_dialog_new_with_seed (GtkWindow   *parent,
     gtk_box_pack_start (GTK_BOX (action_bar), state->editor_toolbar,
                         FALSE, FALSE, 0);
 
-    state->save_button = gtk_button_new_with_label ("Save");
+    state->save_button = gtk_button_new_with_label (_("Save"));
     gtk_widget_set_sensitive (state->save_button, FALSE);
     gtk_box_pack_end (GTK_BOX (action_bar), state->save_button, FALSE, FALSE, 0);
 
     /* Takes the place of "Save": op_begin hides one and reveals the
      * other. no_show_all: gtk_widget_show_all must not reveal it at
      * startup. */
-    state->cancel_button = gtk_button_new_with_label ("Cancel operation");
+    state->cancel_button = gtk_button_new_with_label (_("Cancel operation"));
     gtk_widget_set_sensitive (state->cancel_button, FALSE);
     gtk_widget_set_no_show_all (state->cancel_button, TRUE);
     gtk_box_pack_end (GTK_BOX (action_bar), state->cancel_button,
@@ -1703,7 +1707,7 @@ sieve_editor_dialog_new_with_seed (GtkWindow   *parent,
     gtk_box_pack_start (GTK_BOX (content), action_bar, FALSE, FALSE, 0);
   }
 
-  state->status_label = GTK_LABEL (gtk_label_new ("Not connected."));
+  state->status_label = GTK_LABEL (gtk_label_new (_("Not connected.")));
   gtk_widget_set_halign (GTK_WIDGET (state->status_label), GTK_ALIGN_START);
   gtk_label_set_xalign (state->status_label, 0.0);
   gtk_label_set_line_wrap (state->status_label, TRUE);

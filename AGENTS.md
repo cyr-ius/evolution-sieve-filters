@@ -154,16 +154,22 @@ tests/test-timeout.c               délai réseau + GCancellable du client
                                    (GSocketService local muet, sans réseau)
 tests/secret/                      trousseau jetable (gnome-keyring + dbus-run-session)
 tests/dovecot/                     fixture serveur (voir son README.md)
+po/                                traductions gettext du module Evolution
+                                   (POTFILES.in, LINGUAS, fr.po) ; voir
+                                   « Traductions (gettext) » ci-dessous
 ```
 
 ## Conventions
 
 - C `gnu11`, `warning_level=2`, style GLib/GObject (`g_autoptr` bienvenu,
   `GError **` partout, `GCancellable` propagé même si pas encore exploité).
-- **Commentaires et messages utilisateur en anglais** (cohérence avec
-  l'existant ; ce dépôt de documentation reste rédigé en français, mais
-  le code source — commentaires et chaînes visibles par l'utilisateur —
-  est en anglais).
+- **Commentaires en anglais, msgid en anglais** (cohérence avec l'existant ;
+  ce dépôt de documentation reste rédigé en français, mais le code source —
+  commentaires et chaînes littérales — est en anglais). Les chaînes
+  visibles du module Evolution passent par gettext (`_()`/`N_()`) et sont
+  donc traduisibles ; l'anglais n'est plus la seule langue d'affichage
+  utilisateur, seulement la langue source des `msgid` (voir « Traductions
+  (gettext) » ci-dessous).
 - Pas de nouvelle dépendance tierce sans raison forte : GLib/GIO couvrent
   TCP+TLS. `libgsasl` (SASL fort) et `libsecret` (trousseau) sont désormais
   en place ; ne rien ajouter d'autre à la légère.
@@ -181,9 +187,50 @@ tests/dovecot/                     fixture serveur (voir son README.md)
   (libgsasl ne les fournit pas) ; le client **consomme** un jeton, il ne
   l'acquiert pas.
 
-## À faire (détaillé dans README.md « Ce qui manque »)
+## Traductions (gettext)
 
-Intégration menu Evolution · lecture des réglages de compte
+Le module Evolution est traduisible via gettext (GLib, aucune dépendance
+supplémentaire) : `_()`/`N_()` sur les chaînes visibles de
+`module-sieve-filters.c`, `sieve-editor-dialog.c`, `sieve-config-page.c` et
+`sieve-rule-editor.c` (liste exacte : `po/POTFILES.in`). Une traduction
+française complète est fournie (`po/fr.po` ; langues déclarées dans
+`po/LINGUAS`).
+
+**Périmètre volontairement limité** : la bibliothèque protocole
+(`sieve-managesieve-client`, `sieve-sasl`, `sieve-account`, `sieve-secret`,
+`sieve-config`, `sieve-srv`, `sieve-model`) reste **hors gettext** — elle est
+testée seule via des CLI qui n'ont pas vocation à être traduites, et ses
+messages (journal `g_warning`/`g_debug`, `GError->message`) restent en
+anglais. Les enveloppes affichées à l'utilisateur autour de ces erreurs
+(« Connection failed: %s », « Save failed: %s »…) sont traduites côté
+`sieve-editor-dialog.c` / `sieve-config-page.c` ; le détail de l'erreur
+sous-jacente (`error->message`) reste en anglais.
+
+**Piège C** : un tableau `static const` (p. ex. les listes de libellés de
+`sieve-rule-editor.c`, ou la table `EUIActionEntry` de
+`module-sieve-filters.c`) ne peut pas être initialisé avec `_()` — un appel
+gettext n'est pas une expression constante. Ces tables sont donc
+construites en local (portée fonction, sans `static`) là où elles sont
+utilisées.
+
+Pour ajouter/modifier une chaîne traduisible : l'envelopper avec `_()` (ou
+`N_()` si elle n'est utilisée qu'ailleurs), puis régénérer `po/fr.po` :
+
+```sh
+meson compile -C build evolution-sieve-filters-pot   # régénère po/evolution-sieve-filters.pot
+msgmerge --update po/fr.po po/evolution-sieve-filters.pot
+# puis traduire les nouvelles entrées (msgstr "") dans po/fr.po
+```
+
+`meson compile -C build` régénère ensuite le `.mo` installé
+(`po/fr/LC_MESSAGES/evolution-sieve-filters.mo`). Vérification de la
+syntaxe : `msgfmt --check --statistics po/fr.po`.
+
+## À faire (détaillé dans README.md « Limites connues »)
+
+~~Intégration menu Evolution~~ (fait : menu *Édition → Filtres Sieve…*,
+menu contextuel *Message → Créer → Créer un filtre Sieve…*, page « Filtres
+Sieve » de l'éditeur de comptes) · lecture des réglages de compte
 (`CamelSettings`/`ESource` — les paramètres de connexion ManageSieve ont
 déjà une page dédiée dans l'éditeur de comptes, `sieve-config-page` ;
 reste la lecture fine de `CamelSettings`, p. ex. sécurité IMAP →

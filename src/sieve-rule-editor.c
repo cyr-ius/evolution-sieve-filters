@@ -10,6 +10,8 @@
 
 #include "sieve-rule-editor.h"
 
+#include <glib/gi18n-lib.h>
+
 struct _SieveRuleEditor {
   GtkBox parent_instance;
 
@@ -71,22 +73,10 @@ make_combo (const gchar * const *labels, gint active)
   return combo;
 }
 
-/* Indices aligned with SieveField / SieveActionType (see sieve-model.h). */
-static const gchar * const field_labels[] = {
-  "Sender (From)", "Recipient (To)", "Copy (Cc)", "Subject",
-  "Header…", "Size", "Message body", NULL
-};
-static const gchar * const text_match_labels[] = {
-  "contains", "is exactly", "matches pattern", NULL
-};
-static const gchar * const size_match_labels[] = {
-  "is over", "is under", NULL
-};
-static const gchar * const action_labels[] = {
-  "Keep", "Discard", "File into",
-  "Redirect to", "Add IMAP flag",
-  "Stop processing", NULL
-};
+/* Indices aligned with SieveField / SieveActionType (see sieve-model.h).
+ * Built where used (build_condition_row / build_action_row), not at file
+ * scope: a "static const" array initializer must be a compile-time
+ * constant, which a gettext lookup (_()) is not. */
 
 /* IMAP flags offered for "addflag": the RFC 3501 system flags followed
  * by a few common keywords. The list is indicative -- the field remains
@@ -226,6 +216,16 @@ build_condition_row (SieveRuleEditor *self, SieveCondition *c)
   RowCtx *ctx = row_ctx_new (self, c);
   gboolean is_size = (c->field == SIEVE_FIELD_SIZE);
   GtkWidget *field_combo, *match_combo, *header_entry, *value_entry, *remove_btn;
+  const gchar * const field_labels[] = {
+    _("Sender (From)"), _("Recipient (To)"), _("Copy (Cc)"), _("Subject"),
+    _("Header…"), _("Size"), _("Message body"), NULL
+  };
+  const gchar * const text_match_labels[] = {
+    _("contains"), _("is exactly"), _("matches pattern"), NULL
+  };
+  const gchar * const size_match_labels[] = {
+    _("is over"), _("is under"), NULL
+  };
 
   g_object_set_data_full (G_OBJECT (row), "ctx", ctx, g_free);
 
@@ -245,12 +245,12 @@ build_condition_row (SieveRuleEditor *self, SieveCondition *c)
   value_entry = gtk_entry_new ();
   gtk_widget_set_hexpand (value_entry, TRUE);
   gtk_entry_set_placeholder_text (GTK_ENTRY (value_entry),
-                                  is_size ? "1M" : "value to match");
+                                  is_size ? "1M" : _("value to match"));
   if (c->value != NULL)
     gtk_entry_set_text (GTK_ENTRY (value_entry), c->value);
 
   remove_btn = gtk_button_new_from_icon_name ("list-remove-symbolic", GTK_ICON_SIZE_BUTTON);
-  gtk_widget_set_tooltip_text (remove_btn, "Remove this condition");
+  gtk_widget_set_tooltip_text (remove_btn, _("Remove this condition"));
 
   gtk_box_pack_start (GTK_BOX (row), field_combo, FALSE, FALSE, 0);
   gtk_box_pack_start (GTK_BOX (row), header_entry, FALSE, FALSE, 0);
@@ -326,6 +326,11 @@ build_action_row (SieveRuleEditor *self, SieveAction *a)
                                self->mailboxes != NULL &&
                                self->mailboxes[0] != NULL);
   const gchar *placeholder = "";
+  const gchar * const action_labels[] = {
+    _("Keep"), _("Discard"), _("File into"),
+    _("Redirect to"), _("Add IMAP flag"),
+    _("Stop processing"), NULL
+  };
 
   g_object_set_data_full (G_OBJECT (row), "ctx", ctx, g_free);
 
@@ -360,7 +365,7 @@ build_action_row (SieveRuleEditor *self, SieveAction *a)
   gtk_widget_set_visible (arg_widget, action_takes_arg (a->type));
 
   remove_btn = gtk_button_new_from_icon_name ("list-remove-symbolic", GTK_ICON_SIZE_BUTTON);
-  gtk_widget_set_tooltip_text (remove_btn, "Remove this action");
+  gtk_widget_set_tooltip_text (remove_btn, _("Remove this action"));
 
   gtk_box_pack_start (GTK_BOX (row), type_combo, FALSE, FALSE, 0);
   gtk_box_pack_start (GTK_BOX (row), arg_widget, TRUE, TRUE, 0);
@@ -393,7 +398,7 @@ on_name_changed (GtkEntry *entry, SieveRuleEditor *self)
      * them, but their row is a GtkBox rather than a GtkLabel. */
     if (GTK_IS_LABEL (label))
       gtk_label_set_text (GTK_LABEL (label),
-                          (*rule->name != '\0') ? rule->name : "(unnamed)");
+                          (*rule->name != '\0') ? rule->name : _("(unnamed)"));
   }
   emit_changed (self);
 }
@@ -452,7 +457,7 @@ static void
 on_add_rule (GtkButton *button, SieveRuleEditor *self)
 {
   (void) button;
-  g_ptr_array_add (self->model->rules, sieve_rule_new ("New rule"));
+  g_ptr_array_add (self->model->rules, sieve_rule_new (_("New rule")));
   self->selected = (gint) self->model->rules->len - 1;
   rebuild_rule_list (self);
   rebuild_detail (self);
@@ -490,8 +495,8 @@ on_remove_rule (GtkButton *button, SieveRuleEditor *self)
 static void
 rebuild_detail (SieveRuleEditor *self)
 {
-  static const gchar * const mode_labels[] = {
-    "all of the criteria", "at least one criterion", NULL
+  const gchar * const mode_labels[] = {
+    _("all of the criteria"), _("at least one criterion"), NULL
   };
   SieveRule *rule = current_rule (self);
   GtkWidget *name_row, *name_entry, *mode_row, *mode_combo;
@@ -506,8 +511,8 @@ rebuild_detail (SieveRuleEditor *self)
                             rule != NULL && !rule->opaque);
 
   if (rule == NULL) {
-    GtkWidget *hint = gtk_label_new ("Select a rule on the left, "
-                                     "or click \"+\" to create one.");
+    GtkWidget *hint = gtk_label_new (_("Select a rule on the left, "
+                                       "or click \"+\" to create one."));
     gtk_widget_set_halign (hint, GTK_ALIGN_START);
     gtk_box_pack_start (GTK_BOX (self->detail), hint, FALSE, FALSE, 0);
     gtk_widget_show_all (self->detail);
@@ -520,11 +525,11 @@ rebuild_detail (SieveRuleEditor *self)
     GtkTextBuffer *buf;
 
     info = gtk_label_new (
-      "This rule comes from another tool (Nextcloud Mail, Roundcube, "
-      "hand-written script…) or uses constructs the visual editor "
-      "cannot represent.\n"
-      "It is shown here read-only and copied verbatim. "
-      "To edit or remove it, use the \"Raw text\" tab.");
+      _("This rule comes from another tool (Nextcloud Mail, Roundcube, "
+        "hand-written script…) or uses constructs the visual editor "
+        "cannot represent.\n"
+        "It is shown here read-only and copied verbatim. "
+        "To edit or remove it, use the \"Raw text\" tab."));
     gtk_label_set_line_wrap (GTK_LABEL (info), TRUE);
     gtk_label_set_xalign (GTK_LABEL (info), 0.0);
     gtk_box_pack_start (GTK_BOX (self->detail), info, FALSE, FALSE, 0);
@@ -546,7 +551,7 @@ rebuild_detail (SieveRuleEditor *self)
   }
 
   name_row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-  gtk_box_pack_start (GTK_BOX (name_row), gtk_label_new ("Name:"), FALSE, FALSE, 0);
+  gtk_box_pack_start (GTK_BOX (name_row), gtk_label_new (_("Name:")), FALSE, FALSE, 0);
   name_entry = gtk_entry_new ();
   gtk_widget_set_hexpand (name_entry, TRUE);
   gtk_entry_set_text (GTK_ENTRY (name_entry), rule->name != NULL ? rule->name : "");
@@ -555,35 +560,35 @@ rebuild_detail (SieveRuleEditor *self)
   g_signal_connect (name_entry, "changed", G_CALLBACK (on_name_changed), self);
 
   mode_row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-  gtk_box_pack_start (GTK_BOX (mode_row), gtk_label_new ("Match"), FALSE, FALSE, 0);
+  gtk_box_pack_start (GTK_BOX (mode_row), gtk_label_new (_("Match")), FALSE, FALSE, 0);
   mode_combo = make_combo (mode_labels, rule->mode == SIEVE_MATCH_MODE_ANY ? 1 : 0);
   gtk_box_pack_start (GTK_BOX (mode_row), mode_combo, FALSE, FALSE, 0);
-  gtk_box_pack_start (GTK_BOX (mode_row), gtk_label_new ("of the following:"), FALSE, FALSE, 0);
+  gtk_box_pack_start (GTK_BOX (mode_row), gtk_label_new (_("of the following:")), FALSE, FALSE, 0);
   gtk_box_pack_start (GTK_BOX (self->detail), mode_row, FALSE, FALSE, 0);
   g_signal_connect (mode_combo, "changed", G_CALLBACK (on_mode_changed), self);
 
-  cond_frame = gtk_frame_new ("Criteria");
+  cond_frame = gtk_frame_new (_("Criteria"));
   cond_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
   gtk_container_set_border_width (GTK_CONTAINER (cond_box), 6);
   for (guint i = 0; i < rule->conditions->len; i++)
     gtk_box_pack_start (GTK_BOX (cond_box),
                         build_condition_row (self, g_ptr_array_index (rule->conditions, i)),
                         FALSE, FALSE, 0);
-  add_cond_btn = gtk_button_new_with_label ("Add a condition");
+  add_cond_btn = gtk_button_new_with_label (_("Add a condition"));
   gtk_widget_set_halign (add_cond_btn, GTK_ALIGN_START);
   gtk_box_pack_start (GTK_BOX (cond_box), add_cond_btn, FALSE, FALSE, 0);
   gtk_container_add (GTK_CONTAINER (cond_frame), cond_box);
   gtk_box_pack_start (GTK_BOX (self->detail), cond_frame, FALSE, FALSE, 0);
   g_signal_connect (add_cond_btn, "clicked", G_CALLBACK (on_add_condition), self);
 
-  act_frame = gtk_frame_new ("Actions");
+  act_frame = gtk_frame_new (_("Actions"));
   act_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
   gtk_container_set_border_width (GTK_CONTAINER (act_box), 6);
   for (guint i = 0; i < rule->actions->len; i++)
     gtk_box_pack_start (GTK_BOX (act_box),
                         build_action_row (self, g_ptr_array_index (rule->actions, i)),
                         FALSE, FALSE, 0);
-  add_act_btn = gtk_button_new_with_label ("Add an action");
+  add_act_btn = gtk_button_new_with_label (_("Add an action"));
   gtk_widget_set_halign (add_act_btn, GTK_ALIGN_START);
   gtk_box_pack_start (GTK_BOX (act_box), add_act_btn, FALSE, FALSE, 0);
   gtk_container_add (GTK_CONTAINER (act_frame), act_box);
@@ -603,7 +608,7 @@ rebuild_rule_list (SieveRuleEditor *self)
   for (guint i = 0; i < self->model->rules->len; i++) {
     SieveRule *r = g_ptr_array_index (self->model->rules, i);
     GtkWidget *label = gtk_label_new ((r->name != NULL && *r->name != '\0')
-                                        ? r->name : "(unnamed)");
+                                        ? r->name : _("(unnamed)"));
     GtkWidget *item;
 
     gtk_widget_set_halign (label, GTK_ALIGN_START);
@@ -618,8 +623,8 @@ rebuild_rule_list (SieveRuleEditor *self)
       gtk_box_pack_start (GTK_BOX (box), lock, FALSE, FALSE, 0);
       gtk_box_pack_start (GTK_BOX (box), label, FALSE, FALSE, 0);
       gtk_widget_set_tooltip_text (
-        box, "Rule imported from another tool — editable only "
-             "in the \"Raw text\" tab");
+        box, _("Rule imported from another tool — editable only "
+               "in the \"Raw text\" tab"));
       item = box;
     } else {
       item = label;
@@ -802,14 +807,14 @@ sieve_rule_editor_init (SieveRuleEditor *self)
 
   buttons = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
   add_btn = gtk_button_new_from_icon_name ("list-add-symbolic", GTK_ICON_SIZE_BUTTON);
-  gtk_widget_set_tooltip_text (add_btn, "New rule");
+  gtk_widget_set_tooltip_text (add_btn, _("New rule"));
   self->remove_rule_button =
     gtk_button_new_from_icon_name ("list-remove-symbolic", GTK_ICON_SIZE_BUTTON);
-  gtk_widget_set_tooltip_text (self->remove_rule_button, "Remove the selected rule");
+  gtk_widget_set_tooltip_text (self->remove_rule_button, _("Remove the selected rule"));
   self->refresh_rule_button =
     gtk_button_new_from_icon_name ("view-refresh-symbolic", GTK_ICON_SIZE_BUTTON);
   gtk_widget_set_tooltip_text (self->refresh_rule_button,
-                               "Reload rules from the server");
+                               _("Reload rules from the server"));
   /* Nothing to reload until a session is open: the dialog enables it via
    * sieve_rule_editor_set_refresh_sensitive(). */
   gtk_widget_set_sensitive (self->refresh_rule_button, FALSE);

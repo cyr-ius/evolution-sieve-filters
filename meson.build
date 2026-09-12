@@ -2,6 +2,23 @@ project('evolution-sieve-filters', 'c',
   version: '0.1.0',
   default_options: ['c_std=gnu11', 'warning_level=2'])
 
+i18n = import('i18n')
+gettext_package = meson.project_name()
+
+# Traductions (gettext) : uniquement les chaînes visibles du module
+# Evolution (menus, dialogue, éditeur visuel, page de compte) --
+# module-sieve-filters.c, sieve-editor-dialog.c, sieve-config-page.c,
+# sieve-rule-editor.c (voir po/POTFILES.in). La bibliothèque protocole
+# (sieve-managesieve-client, sieve-sasl, sieve-account, sieve-secret,
+# sieve-config, sieve-srv, sieve-model) reste volontairement hors
+# gettext : elle est testée seule via des CLI qui n'ont pas vocation à
+# être traduites, et ses messages d'erreur (journal / GError) restent en
+# anglais, comme les commentaires (voir AGENTS.md).
+add_project_arguments(
+  '-DGETTEXT_PACKAGE="' + gettext_package + '"',
+  '-DLOCALEDIR="' + get_option('prefix') / get_option('localedir') + '"',
+  language: 'c')
+
 # Dépendances : GLib/GIO fournissent tout ce qu'il faut pour parler
 # ManageSieve en TCP+TLS sans bibliothèque tierce. evolution-shell et
 # evolution-mail donnent accès aux points d'extension (EModule/EExtension).
@@ -40,4 +57,5 @@ if not evo_shell_dep.found()
 endif
 
 subdir('src')
+subdir('po')
 subdir('tests')

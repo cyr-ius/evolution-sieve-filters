@@ -1,0 +1,624 @@
+# French translation of evolution-sieve-filters.
+# Copyright (C) 2026 the evolution-sieve-filters authors.
+# This file is distributed under the same license as the evolution-sieve-filters package.
+msgid ""
+msgstr ""
+"Project-Id-Version: evolution-sieve-filters 0.1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-12 10:00+0000\n"
+"PO-Revision-Date: 2026-09-12+00:00\n"
+"Last-Translator: \n"
+"Language-Team: French\n"
+"Language: fr\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: src/module-sieve-filters.c:155
+#, c-format
+msgid "Message from %s"
+msgstr "Message de %s"
+
+#: src/module-sieve-filters.c:348
+msgid "_Sieve Filters…"
+msgstr "Filtres _Sieve…"
+
+#: src/module-sieve-filters.c:350
+msgid "Manage server-side Sieve mail filters"
+msgstr "Gérer les filtres de courrier Sieve côté serveur"
+
+#: src/module-sieve-filters.c:355
+msgid "Create a _Sieve Filter…"
+msgstr "Créer un filtre _Sieve…"
+
+#: src/module-sieve-filters.c:357
+msgid "Create a server-side Sieve rule from the selected message's sender"
+msgstr ""
+"Créer une règle Sieve côté serveur à partir de l'expéditeur du message "
+"sélectionné"
+
+#: src/sieve-editor-dialog.c:126
+msgid "Connected"
+msgstr "Connecté"
+
+#: src/sieve-editor-dialog.c:126
+msgid "Not connected"
+msgstr "Non connecté"
+
+#. Message shown when the chosen account has no ManageSieve server
+#. * configured: the user must go through the account editor.
+#: src/sieve-editor-dialog.c:331
+msgid ""
+"No ManageSieve server configured for this account. Set it up in Edit → "
+"Accounts → this account → \"Sieve Filters\" tab."
+msgstr ""
+"Aucun serveur ManageSieve configuré pour ce compte. Configurez-le dans "
+"Édition → Comptes → ce compte → onglet « Filtres Sieve »."
+
+#: src/sieve-editor-dialog.c:351
+msgid "Disconnected."
+msgstr "Déconnecté."
+
+#: src/sieve-editor-dialog.c:395
+msgid "— Choose an account —"
+msgstr "— Choisir un compte —"
+
+#: src/sieve-editor-dialog.c:402 src/sieve-rule-editor.c:401
+#: src/sieve-rule-editor.c:611
+msgid "(unnamed)"
+msgstr "(sans nom)"
+
+#: src/sieve-editor-dialog.c:414
+msgid "Account registry unavailable."
+msgstr "Registre des comptes indisponible."
+
+#: src/sieve-editor-dialog.c:415
+msgid "No mail account with a server."
+msgstr "Aucun compte de messagerie avec un serveur."
+
+#: src/sieve-editor-dialog.c:486
+#, c-format
+msgid "%s — visual editing available."
+msgstr "%s — édition visuelle disponible."
+
+#: src/sieve-editor-dialog.c:489
+#, c-format
+msgid "%s as raw text (visual editing unavailable: %s)."
+msgstr "%s en texte brut (édition visuelle indisponible : %s)."
+
+#: src/sieve-editor-dialog.c:529
+msgid ""
+"The server's script has a syntax error: fix it in \"Raw text\", then add the "
+"rule by hand."
+msgstr ""
+"Le script du serveur contient une erreur de syntaxe : corrigez-la dans "
+"« Texte brut », puis ajoutez la règle à la main."
+
+#: src/sieve-editor-dialog.c:557
+msgid ""
+"Rule pre-filled from the message (selected on the right): complete the "
+"action — e.g. \"File into\" — then \"Save\"."
+msgstr ""
+"Règle pré-remplie à partir du message (sélectionnée à droite) : complétez "
+"l'action — par ex. « Classer dans » — puis « Enregistrer »."
+
+#: src/sieve-editor-dialog.c:620
+msgid "Cancelling…"
+msgstr "Annulation…"
+
+#: src/sieve-editor-dialog.c:723
+msgid ""
+"# No active script yet.\n"
+"# Type your Sieve script then \"Save\".\n"
+msgstr ""
+"# Aucun script actif pour le moment.\n"
+"# Saisissez votre script Sieve puis « Enregistrer ».\n"
+
+#: src/sieve-editor-dialog.c:783
+msgid "OAuth2 authentication (token supplied by Evolution)."
+msgstr "Authentification OAuth2 (jeton fourni par Evolution)."
+
+#: src/sieve-editor-dialog.c:829
+msgid "Password reused from the Evolution account."
+msgstr "Mot de passe réutilisé depuis le compte Evolution."
+
+#: src/sieve-editor-dialog.c:896
+msgid "Connection cancelled."
+msgstr "Connexion annulée."
+
+#: src/sieve-editor-dialog.c:898
+#, c-format
+msgid "Connection failed: %s"
+msgstr "Connexion échouée : %s"
+
+#: src/sieve-editor-dialog.c:910
+msgid " (offline: use \"Reload rules\" to send it.)"
+msgstr " (hors ligne : utilisez « Recharger les règles » pour l'envoyer.)"
+
+#: src/sieve-editor-dialog.c:936
+msgid "Connected. Script loaded"
+msgstr "Connecté. Script chargé"
+
+#: src/sieve-editor-dialog.c:964
+msgid "Choose an account first."
+msgstr "Choisissez d'abord un compte."
+
+#: src/sieve-editor-dialog.c:1017
+msgid "Connecting via OAuth2… (token requested from Evolution)"
+msgstr "Connexion via OAuth2… (jeton demandé à Evolution)"
+
+#: src/sieve-editor-dialog.c:1018
+msgid "Connecting… (\"Cancel\" to interrupt)"
+msgstr "Connexion en cours… (« Annuler » pour interrompre)"
+
+#: src/sieve-editor-dialog.c:1084
+msgid "Reload cancelled."
+msgstr "Rechargement annulé."
+
+#. Connection lost: the session is no longer reliable. "Reload
+#. * rules" will start a fresh connection.
+#: src/sieve-editor-dialog.c:1088
+#, c-format
+msgid ""
+"Connection lost during reload: %s. Use \"Reload rules\" to retry the "
+"connection."
+msgstr ""
+"Connexion perdue pendant le rechargement : %s. Utilisez « Recharger les "
+"règles » pour retenter la connexion."
+
+#: src/sieve-editor-dialog.c:1099
+#, c-format
+msgid "Reload failed: %s"
+msgstr "Rechargement échoué : %s"
+
+#: src/sieve-editor-dialog.c:1112
+msgid "Rules reloaded from the server"
+msgstr "Règles rechargées depuis le serveur"
+
+#: src/sieve-editor-dialog.c:1130
+msgid "Reloading rules… (\"Cancel\" to interrupt)"
+msgstr "Rechargement des règles… (« Annuler » pour interrompre)"
+
+#: src/sieve-editor-dialog.c:1167
+msgid "Reload rules from the server?"
+msgstr "Recharger les règles depuis le serveur ?"
+
+#: src/sieve-editor-dialog.c:1170
+msgid "Unsaved changes will be lost."
+msgstr "Les modifications non enregistrées seront perdues."
+
+#: src/sieve-editor-dialog.c:1172
+msgid "_Cancel"
+msgstr "A_nnuler"
+
+#: src/sieve-editor-dialog.c:1173
+msgid "_Reload"
+msgstr "_Recharger"
+
+#: src/sieve-editor-dialog.c:1230
+msgid "Script saved and activated."
+msgstr "Script enregistré et activé."
+
+#: src/sieve-editor-dialog.c:1235
+msgid ""
+"Save cancelled — the script may not have been fully transmitted; check on "
+"the server."
+msgstr ""
+"Enregistrement annulé — le script n'a peut-être pas été entièrement "
+"transmis ; vérifiez sur le serveur."
+
+#. Connection lost / timed out while sending: the session is no
+#. * longer reliable. "Reload rules" will start a fresh connection.
+#: src/sieve-editor-dialog.c:1240
+#, c-format
+msgid ""
+"Connection lost during save: %s. Use \"Reload rules\" to retry the "
+"connection."
+msgstr ""
+"Connexion perdue pendant l'enregistrement : %s. Utilisez « Recharger les "
+"règles » pour retenter la connexion."
+
+#: src/sieve-editor-dialog.c:1251
+#, c-format
+msgid "Save failed: %s"
+msgstr "Enregistrement échoué : %s"
+
+#: src/sieve-editor-dialog.c:1270
+msgid "No session: use \"Reload rules\" to (re)connect first."
+msgstr ""
+"Aucune session : utilisez « Recharger les règles » pour (re)connecter "
+"d'abord."
+
+#: src/sieve-editor-dialog.c:1297
+msgid "Saving… (\"Cancel\" to interrupt)"
+msgstr "Enregistrement en cours… (« Annuler » pour interrompre)"
+
+#: src/sieve-editor-dialog.c:1333
+#, c-format
+msgid ""
+"Visual editing unavailable: %s. The script remains editable as raw text."
+msgstr ""
+"Édition visuelle indisponible : %s. Le script reste modifiable en texte "
+"brut."
+
+#: src/sieve-editor-dialog.c:1437
+msgid "Auto-reconnecting to the last account…"
+msgstr "Reconnexion automatique au dernier compte…"
+
+#: src/sieve-editor-dialog.c:1441
+msgid "Account ready: use \"Reload rules\" to open the session."
+msgstr ""
+"Compte prêt : utilisez « Recharger les règles » pour ouvrir la session."
+
+#: src/sieve-editor-dialog.c:1498
+msgid "Connecting to the message's account…"
+msgstr "Connexion au compte du message…"
+
+#: src/sieve-editor-dialog.c:1516
+msgid " Choose the relevant account, then \"Reload rules\"."
+msgstr " Choisissez le compte concerné, puis « Recharger les règles »."
+
+#: src/sieve-editor-dialog.c:1517
+msgid ""
+" Configure this account's ManageSieve server in Edit → Accounts → \"Sieve "
+"Filters\" tab, then \"Reload rules\"."
+msgstr ""
+" Configurez le serveur ManageSieve de ce compte dans Édition → Comptes → "
+"onglet « Filtres Sieve », puis « Recharger les règles »."
+
+#: src/sieve-editor-dialog.c:1599 src/sieve-config-page.c:563
+msgid "Sieve Filters"
+msgstr "Filtres Sieve"
+
+#: src/sieve-editor-dialog.c:1614
+msgid "Account:"
+msgstr "Compte :"
+
+#: src/sieve-editor-dialog.c:1619
+msgid ""
+"Connection settings (server, port, encryption, username, password, auto-"
+"connect) are configured per account in Edit → Accounts, \"Sieve Filters\" "
+"tab."
+msgstr ""
+"Les paramètres de connexion (serveur, port, chiffrement, identifiant, mot "
+"de passe, connexion automatique) se configurent par compte dans Édition → "
+"Comptes, onglet « Filtres Sieve »."
+
+#: src/sieve-editor-dialog.c:1628
+msgid ""
+"ManageSieve session status. There is no Connect button: the connection opens "
+"automatically on open (if the account is set up for it); otherwise use the "
+"visual editor's \"Reload rules\" to (re)connect."
+msgstr ""
+"État de la session ManageSieve. Il n'y a pas de bouton de connexion : la "
+"connexion s'ouvre automatiquement à l'ouverture (si le compte est "
+"configuré pour cela) ; sinon, utilisez « Recharger les règles » de "
+"l'éditeur visuel pour (re)connecter."
+
+#: src/sieve-editor-dialog.c:1654
+msgid "Visual editor"
+msgstr "Éditeur visuel"
+
+#: src/sieve-editor-dialog.c:1660
+msgid "Raw text"
+msgstr "Texte brut"
+
+#: src/sieve-editor-dialog.c:1694
+msgid "Save"
+msgstr "Enregistrer"
+
+#. Takes the place of "Save": op_begin hides one and reveals the
+#. * other. no_show_all: gtk_widget_show_all must not reveal it at
+#. * startup.
+#: src/sieve-editor-dialog.c:1701
+msgid "Cancel operation"
+msgstr "Annuler l'opération"
+
+#: src/sieve-editor-dialog.c:1710
+msgid "Not connected."
+msgstr "Non connecté."
+
+#. Description shown at the top of the page (the "Description:" line, in
+#. * the style of the "Receiving Email" page). Used to be an intro
+#. * paragraph.
+#: src/sieve-config-page.c:29
+msgid ""
+"Connection settings for this account's Sieve filter server (ManageSieve). If "
+"left blank, the receiving server's settings are used as defaults. Rule "
+"editing is done in Edit -> Sieve Filters."
+msgstr ""
+"Paramètres de connexion au serveur de filtres Sieve de ce compte "
+"(ManageSieve). Si laissés vides, les paramètres du serveur de réception "
+"sont utilisés par défaut. L'édition des règles se fait dans Édition -> "
+"Filtres Sieve."
+
+#: src/sieve-config-page.c:269
+msgid ""
+"Keyring entry cleared — enter a password (it will be stored on \"Apply\")."
+msgstr ""
+"Entrée du trousseau effacée — saisissez un mot de passe (il sera "
+"enregistré lors de l'« Application »)."
+
+#: src/sieve-config-page.c:417
+#, c-format
+msgid "Failed: %s"
+msgstr "Échec : %s"
+
+#: src/sieve-config-page.c:422
+#, c-format
+msgid "Connection and authentication succeeded (SASL mechanism: %s)."
+msgstr "Connexion et authentification réussies (mécanisme SASL : %s)."
+
+#: src/sieve-config-page.c:427
+msgid "Connection and authentication succeeded."
+msgstr "Connexion et authentification réussies."
+
+#: src/sieve-config-page.c:452
+msgid "Please enter the server address first."
+msgstr "Veuillez d'abord saisir l'adresse du serveur."
+
+#: src/sieve-config-page.c:479
+msgid "Testing..."
+msgstr "Test en cours…"
+
+#: src/sieve-config-page.c:647
+msgid "Server Type:"
+msgstr "Type de serveur :"
+
+#: src/sieve-config-page.c:653
+msgid "Description:"
+msgstr "Description :"
+
+#: src/sieve-config-page.c:682
+msgid "STARTTLS after connecting"
+msgstr "STARTTLS après connexion"
+
+#: src/sieve-config-page.c:684
+msgid "TLS on a dedicated port"
+msgstr "TLS sur un port dédié"
+
+#: src/sieve-config-page.c:687
+msgid "Password:"
+msgstr "Mot de passe :"
+
+#: src/sieve-config-page.c:693
+msgid "new password"
+msgstr "nouveau mot de passe"
+
+#: src/sieve-config-page.c:700
+msgid "Forget Password"
+msgstr "Oublier le mot de passe"
+
+#: src/sieve-config-page.c:704
+msgid ""
+"Clears the password stored in the keyring for this account (no effect if "
+"there is none) and shows the field to enter a new one."
+msgstr ""
+"Efface le mot de passe stocké dans le trousseau pour ce compte (sans effet "
+"s'il n'y en a pas) et affiche le champ pour en saisir un nouveau."
+
+#: src/sieve-config-page.c:711
+msgid "Connect automatically on open"
+msgstr "Se connecter automatiquement à l'ouverture"
+
+#: src/sieve-config-page.c:718
+msgid "OAuth2: access token managed by Evolution, no password to enter."
+msgstr "OAuth2 : jeton d'accès géré par Evolution, aucun mot de passe à saisir."
+
+#. "Configuration" section: server + port, then "Connect
+#. * automatically" right below the server field.
+#: src/sieve-config-page.c:724
+msgid "Configuration"
+msgstr "Configuration"
+
+#: src/sieve-config-page.c:727
+msgid "Server:"
+msgstr "Serveur :"
+
+#: src/sieve-config-page.c:728
+msgid "Port:"
+msgstr "Port :"
+
+#. "Security" section.
+#: src/sieve-config-page.c:736
+msgid "Security"
+msgstr "Sécurité"
+
+#: src/sieve-config-page.c:738
+msgid "Encryption method:"
+msgstr "Méthode de chiffrement :"
+
+#. "Authentication" section: login, then — on the same line — the
+#. * "Forget Password" button (by default) OR the password field
+#. * preceded by its "Password:" label (after clicking "Forget").
+#. * Everything aligned in column 1 like the login; status line
+#. * below.
+#: src/sieve-config-page.c:746
+msgid "Authentication"
+msgstr "Authentification"
+
+#: src/sieve-config-page.c:748
+msgid "Username:"
+msgstr "Identifiant :"
+
+#. "Connectivity" section: "Test" button that attempts a ManageSieve
+#. * connection + authentication with the entered values (without
+#. * saving anything) and shows the result on the status line.
+#. *
+#. * Reduced top margin (6 instead of 12): the preceding
+#. * "Authentication" section ends on the "forget_status" status line
+#. * (a wrapping label, empty by default) which already takes up one
+#. * line's height; without this compensation the spacing before
+#. * "Connectivity" looks larger than that of the "Security" /
+#. * "Authentication" sections.
+#: src/sieve-config-page.c:770
+msgid "Connectivity"
+msgstr "Connectivité"
+
+#: src/sieve-config-page.c:772
+msgid "Test"
+msgstr "Tester"
+
+#: src/sieve-config-page.c:776
+msgid ""
+"Attempts a connection and authentication to the ManageSieve server with the "
+"settings above, without saving them."
+msgstr ""
+"Tente une connexion et une authentification au serveur ManageSieve avec "
+"les paramètres ci-dessus, sans les enregistrer."
+
+#: src/sieve-rule-editor.c:220
+msgid "Sender (From)"
+msgstr "Expéditeur (De)"
+
+#: src/sieve-rule-editor.c:220
+msgid "Recipient (To)"
+msgstr "Destinataire (À)"
+
+#: src/sieve-rule-editor.c:220
+msgid "Copy (Cc)"
+msgstr "Copie (Cc)"
+
+#: src/sieve-rule-editor.c:220
+msgid "Subject"
+msgstr "Objet"
+
+#: src/sieve-rule-editor.c:221
+msgid "Header…"
+msgstr "En-tête…"
+
+#: src/sieve-rule-editor.c:221
+msgid "Size"
+msgstr "Taille"
+
+#: src/sieve-rule-editor.c:221
+msgid "Message body"
+msgstr "Corps du message"
+
+#: src/sieve-rule-editor.c:224
+msgid "contains"
+msgstr "contient"
+
+#: src/sieve-rule-editor.c:224
+msgid "is exactly"
+msgstr "est exactement"
+
+#: src/sieve-rule-editor.c:224
+msgid "matches pattern"
+msgstr "correspond au motif"
+
+#: src/sieve-rule-editor.c:227
+msgid "is over"
+msgstr "est supérieur à"
+
+#: src/sieve-rule-editor.c:227
+msgid "is under"
+msgstr "est inférieur à"
+
+#: src/sieve-rule-editor.c:248
+msgid "value to match"
+msgstr "valeur à comparer"
+
+#: src/sieve-rule-editor.c:253
+msgid "Remove this condition"
+msgstr "Supprimer cette condition"
+
+#: src/sieve-rule-editor.c:330
+msgid "Keep"
+msgstr "Conserver"
+
+#: src/sieve-rule-editor.c:330
+msgid "Discard"
+msgstr "Rejeter"
+
+#: src/sieve-rule-editor.c:330
+msgid "File into"
+msgstr "Classer dans"
+
+#: src/sieve-rule-editor.c:331
+msgid "Redirect to"
+msgstr "Rediriger vers"
+
+#: src/sieve-rule-editor.c:331
+msgid "Add IMAP flag"
+msgstr "Ajouter un indicateur IMAP"
+
+#: src/sieve-rule-editor.c:332
+msgid "Stop processing"
+msgstr "Arrêter le traitement"
+
+#: src/sieve-rule-editor.c:368
+msgid "Remove this action"
+msgstr "Supprimer cette action"
+
+#: src/sieve-rule-editor.c:460 src/sieve-rule-editor.c:810
+msgid "New rule"
+msgstr "Nouvelle règle"
+
+#: src/sieve-rule-editor.c:499
+msgid "all of the criteria"
+msgstr "tous les critères"
+
+#: src/sieve-rule-editor.c:499
+msgid "at least one criterion"
+msgstr "au moins un critère"
+
+#: src/sieve-rule-editor.c:514
+msgid "Select a rule on the left, or click \"+\" to create one."
+msgstr "Sélectionnez une règle à gauche, ou cliquez sur « + » pour en créer une."
+
+#: src/sieve-rule-editor.c:528
+msgid ""
+"This rule comes from another tool (Nextcloud Mail, Roundcube, hand-written "
+"script…) or uses constructs the visual editor cannot represent.\n"
+"It is shown here read-only and copied verbatim. To edit or remove it, use "
+"the \"Raw text\" tab."
+msgstr ""
+"Cette règle provient d'un autre outil (Nextcloud Mail, Roundcube, script "
+"écrit à la main…) ou utilise des constructions que l'éditeur visuel ne "
+"peut pas représenter.\n"
+"Elle est affichée ici en lecture seule et copiée telle quelle. Pour la "
+"modifier ou la supprimer, utilisez l'onglet « Texte brut »."
+
+#: src/sieve-rule-editor.c:554
+msgid "Name:"
+msgstr "Nom :"
+
+#: src/sieve-rule-editor.c:563
+msgid "Match"
+msgstr "Respecter"
+
+#: src/sieve-rule-editor.c:566
+msgid "of the following:"
+msgstr "parmi les suivants :"
+
+#: src/sieve-rule-editor.c:570
+msgid "Criteria"
+msgstr "Critères"
+
+#: src/sieve-rule-editor.c:577
+msgid "Add a condition"
+msgstr "Ajouter une condition"
+
+#: src/sieve-rule-editor.c:584
+msgid "Actions"
+msgstr "Actions"
+
+#: src/sieve-rule-editor.c:591
+msgid "Add an action"
+msgstr "Ajouter une action"
+
+#: src/sieve-rule-editor.c:626
+msgid "Rule imported from another tool — editable only in the \"Raw text\" tab"
+msgstr ""
+"Règle importée d'un autre outil — modifiable uniquement dans l'onglet "
+"« Texte brut »"
+
+#: src/sieve-rule-editor.c:813
+msgid "Remove the selected rule"
+msgstr "Supprimer la règle sélectionnée"
+
+#: src/sieve-rule-editor.c:817
+msgid "Reload rules from the server"
+msgstr "Recharger les règles depuis le serveur"

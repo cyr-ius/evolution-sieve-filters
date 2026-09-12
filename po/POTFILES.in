@@ -1,0 +1,4 @@
+src/module-sieve-filters.c
+src/sieve-editor-dialog.c
+src/sieve-config-page.c
+src/sieve-rule-editor.c
