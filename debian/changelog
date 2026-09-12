@@ -1,4 +1,4 @@
-evolution-sieve-filters (0.1.0-1) UNRELEASED; urgency=medium
+evolution-sieve-filters (0.1.0-1) unstable; urgency=medium
 
   * Initial packaging.
 
