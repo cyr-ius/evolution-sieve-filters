@@ -2,15 +2,21 @@
 # this file. The @...@ tokens are substituted by run.sh (fixture's absolute
 # path, current user's uid/gid).
 #
-# WARNING: DOVECOT 2.3 SYNTAX. Since the devcontainer moved to Debian trixie,
-# Dovecot is at 2.4: this template needs to be ported (named `passdb`/`userdb`
-# blocks, `mail_driver`/`mail_path`, `ssl_server_cert_file`, the `plugin {}`
-# block dropped in favor of `sieve { }`, `auth_allow_cleartext`…). To do,
-# and to verify against the real Dovecot 2.4 after rebuilding the container —
-# see tests/dovecot/README.md.
+# DOVECOT 2.4 SYNTAX (ported from the original 2.3 template when the
+# devcontainer moved to Debian trixie): named `passdb`/`userdb` blocks
+# (`passdb passwd-file { }` instead of `passdb { driver = passwd-file }`),
+# `passwd_file_path` instead of `args`, `mail_driver`/`mail_path` instead of
+# `mail_location`, `ssl_server_cert_file`/`ssl_server_key_file` instead of
+# `ssl_cert`/`ssl_key` (no `ssl_dh` — DH params are deprecated/optional in
+# 2.4), `auth_allow_cleartext` instead of `disable_plaintext_auth`. The
+# `plugin { sieve = ... }` block is unchanged. Verified against the real
+# Dovecot 2.4 (see tests/dovecot/README.md).
 #
 # Minimal, disposable Dovecot + Pigeonhole instance dedicated to the
 # ManageSieve client tests: no system account, everything under tests/dovecot/.
+
+dovecot_config_version  = 2.4.0
+dovecot_storage_version = 2.4.0
 
 # base_dir must be a directory distinct from where THIS file lives:
 # Dovecot copies its config into base_dir/dovecot.conf, which would create a
@@ -25,13 +31,13 @@ protocols = sieve
 # ssl = required: plaintext auth is refused as long as the session isn't
 # encrypted (STARTTLS or implicit TLS). Both paths are exposed,
 # on two distinct ports (see the managesieve-login service below).
-ssl              = required
-ssl_cert         = <@FIXTURE_DIR@/run/cert.pem
-ssl_key          = <@FIXTURE_DIR@/run/key.pem
-ssl_dh           = </usr/share/dovecot/dh.pem
-ssl_min_protocol = TLSv1.2
+ssl                   = required
+ssl_server_cert_file  = @FIXTURE_DIR@/run/cert.pem
+ssl_server_key_file   = @FIXTURE_DIR@/run/key.pem
+ssl_min_protocol      = TLSv1.2
 
-disable_plaintext_auth = no
+# auth_allow_cleartext left at its default (no): irrelevant here anyway,
+# since ssl = required already forces TLS before any auth happens.
 # A realistic set of mechanisms to exercise the client's SASL layer: PLAIN and
 # LOGIN (password sent as-is), CRAM-MD5 and SCRAM-SHA-1/256 (challenge-response,
 # the secret never travels). The passdb below stores the password in
@@ -39,18 +45,18 @@ disable_plaintext_auth = no
 auth_mechanisms        = plain login cram-md5 scram-sha-1 scram-sha-256
 auth_verbose           = yes
 
-# Static user base (passwd-file): "testuser / testpass".
-passdb {
-  driver = passwd-file
-  args   = @FIXTURE_DIR@/run/users
+# Static user base (passwd-file): "testuser / testpass". The file already
+# carries uid/gid/home (classic passwd(5) columns), so no extra
+# userdb_fields override is needed.
+passdb passwd-file {
+  passwd_file_path = @FIXTURE_DIR@/run/users
 }
-userdb {
-  driver = passwd-file
-  args   = @FIXTURE_DIR@/run/users
-  default_fields = uid=@UID@ gid=@GID@ home=@FIXTURE_DIR@/mail/%u
+userdb passwd-file {
+  passwd_file_path = @FIXTURE_DIR@/run/users
 }
 
-mail_location = maildir:@FIXTURE_DIR@/mail/%u/Maildir
+mail_driver = maildir
+mail_path   = @FIXTURE_DIR@/mail/%{user}/Maildir
 
 service managesieve-login {
   # 4190: STARTTLS — behavior of a real ManageSieve server (RFC 5804).
@@ -65,6 +71,5 @@ service managesieve-login {
   }
 }
 
-plugin {
-  sieve = file:@FIXTURE_DIR@/mail/%u/sieve;active=@FIXTURE_DIR@/mail/%u/.dovecot.sieve
-}
+sieve_script_path        = @FIXTURE_DIR@/mail/%{user}/sieve
+sieve_script_active_path = @FIXTURE_DIR@/mail/%{user}/.dovecot.sieve

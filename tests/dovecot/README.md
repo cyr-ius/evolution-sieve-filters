@@ -56,18 +56,23 @@ build/tests/test-managesieve --host localhost --port 4190 --starttls \
 | `run/`             | Runtime state (cert, generated conf, logs, sockets) — ignored |
 | `mail/`            | Users' maildirs + Sieve scripts — ignored          |
 
-## To do — Dovecot 2.4 port
+## Dovecot 2.4
 
 The devcontainer moved to Debian *trixie*, which ships **Dovecot 2.4**
-(instead of 2.3). The configuration format changed significantly:
-`dovecot.conf.in` is still in 2.3 syntax and needs to be ported then
-checked against a real Dovecot 2.4 (named `passdb`/`userdb` blocks,
-`mail_driver` + `mail_path`,
-`ssl_server_cert_file`/`ssl_server_key_file`/`ssl_server_dh_file`,
-removal of the `plugin {}` block replaced by `sieve { }` on the
-Pigeonhole side, `auth_allow_cleartext` instead of
-`disable_plaintext_auth`). Network-free tests (`meson test`) are
-unaffected.
+(instead of 2.3): `dovecot.conf.in` is in 2.4 syntax and has been
+verified against the real installed Dovecot 2.4.1 (`smoke.sh` passes:
+implicit TLS, STARTTLS, all SASL mechanisms, LIST/CHECK/PUT/GET/
+SETACTIVE/DELETE). Notable differences from the old 2.3 template: a
+mandatory `dovecot_config_version = 2.4.0` (+ `dovecot_storage_version`)
+as the first settings, named `passdb passwd-file { }` / `userdb
+passwd-file { }` blocks (`passwd_file_path` instead of `args`),
+`mail_driver` + `mail_path` instead of `mail_location`,
+`ssl_server_cert_file`/`ssl_server_key_file` instead of `ssl_cert`/
+`ssl_key` (no `ssl_dh`: DH params are deprecated/optional in 2.4), and
+flat `sieve_script_path`/`sieve_script_active_path` settings instead of
+the `plugin { sieve = path;active=path }` one-liner (the bare `plugin {}`
+section no longer exists in 2.4). Network-free tests (`meson test`) are
+unaffected either way.
 
 ## Notes
 
