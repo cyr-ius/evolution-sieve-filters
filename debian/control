@@ -1,0 +1,33 @@
+Source: evolution-sieve-filters
+Section: mail
+Priority: optional
+Maintainer: cyr-ius <cyr-ius@ipocus.net>
+Build-Depends: debhelper-compat (= 13),
+               meson (>= 0.56),
+               ninja-build,
+               pkg-config,
+               libglib2.0-dev (>= 2.66),
+               libgtk-3-dev,
+               libgsasl-dev (>= 1.10),
+               libsecret-1-dev (>= 0.20),
+               evolution-dev (>= 3.54),
+               libebook1.2-dev,
+               evolution-data-server-dev
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/cyr-ius/evolution-sieve-filters
+
+Package: evolution-sieve-filters
+Architecture: any
+Depends: evolution (>= 3.54),
+         ${shlibs:Depends},
+         ${misc:Depends}
+Description: Sieve mail filter management plugin for Evolution
+ Evolution module that manages server-side Sieve mail filters over
+ ManageSieve (RFC 5804). Provides a visual rule editor as well as a raw
+ script editor integrated into Evolution's account settings and message
+ context menus.
+ .
+ The ManageSieve client, SASL layer (PLAIN, LOGIN, CRAM-MD5, SCRAM-SHA-1,
+ SCRAM-SHA-256, OAUTHBEARER, XOAUTH2) and Sieve rule model are
+ self-contained GLib/GIO code, independently testable from Evolution.

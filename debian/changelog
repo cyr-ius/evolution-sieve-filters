@@ -1,0 +1,5 @@
+evolution-sieve-filters (0.1.0-1) UNRELEASED; urgency=medium
+
+  * Initial packaging.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sat, 12 Sep 2026 11:30:02 +0200
