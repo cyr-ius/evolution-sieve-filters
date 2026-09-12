@@ -17,6 +17,15 @@ jobs:
     # ubuntu-latest.
     container: debian:trixie
     steps:
+      # debian:trixie ne fournit pas git : actions/checkout en a besoin
+      # pour faire un vrai clone (sinon il bascule silencieusement sur un
+      # téléchargement de tarball via l'API REST, sans dossier .git, et le
+      # "git archive" plus bas échoue avec "not a git repository").
+      - name: Install git
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
