@@ -26,6 +26,12 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends git ca-certificates
 
+      # Le conteneur tourne en root alors que le workspace checkouté
+      # appartient à l'UID du runner hôte : git refuse ce mismatch par
+      # défaut (protection "dubious ownership", CVE-2022-24765).
+      - name: Mark workspace as safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
