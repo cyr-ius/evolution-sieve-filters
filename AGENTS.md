@@ -171,11 +171,15 @@ po/                                gettext translations for the Evolution
 - C `gnu11`, `warning_level=2`, GLib/GObject style (`g_autoptr` welcome,
   `GError **` everywhere, `GCancellable` propagated even if not yet
   exploited).
-- **Comments in English, msgids in English**, and project documentation
-  (`README.md`, `AGENTS.md`, other `.md` files, `meson.build` comments)
-  in English too. User-visible strings in the Evolution module go
-  through gettext (`_()`/`N_()`) and are therefore translatable; a
-  French translation is provided (see "Translations (gettext)" below).
+- **English is the project's reference language.** Comments, msgids,
+  shell scripts (`scripts/`, `tests/dovecot/`, `tests/secret/`),
+  `debian/*` metadata, and project documentation (`README.md`,
+  `AGENTS.md`, other `.md` files, `meson.build` comments) are all
+  written in English. The only exceptions are the shipped French UI
+  translation (`po/fr.po`) and its `LINGUAS` entry — see "Translations
+  (gettext)" below; new contributions should not introduce French
+  elsewhere. User-visible strings in the Evolution module go through
+  gettext (`_()`/`N_()`) and are therefore translatable.
 - No new third-party dependency without a strong reason: GLib/GIO cover
   TCP+TLS. `libgsasl` (strong SASL) and `libsecret` (keyring) are now in
   place; don't add anything else lightly.
