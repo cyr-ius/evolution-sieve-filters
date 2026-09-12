@@ -6,7 +6,16 @@
 
 #include "sieve-managesieve-client.h"
 #include "sieve-sasl.h"
+#include <errno.h>
 #include <string.h>
+
+/* Sieve scripts are always small text; a server announcing a "{N}" literal
+ * this large can only be a protocol error or an attempt at resource
+ * exhaustion (a malicious/compromised server, or a MITM attacker on the
+ * plaintext banner before StartTLS). Cap it well above any plausible
+ * script size instead of trusting the network-supplied length and calling
+ * g_malloc() on it unchecked. */
+#define SIEVE_MANAGESIEVE_MAX_LITERAL_SIZE (16 * 1024 * 1024)
 
 struct _SieveManageSieveClient {
   GObject parent_instance;
@@ -297,9 +306,19 @@ update_capabilities_from_greeting (SieveManageSieveClient *self, const gchar *ra
  * rather than a quoted-string, confirmed by testing against a real
  * server — see project history). *out_prefix receives the part before
  * the literal (may be an empty string for a literal alone on its line,
- * as with GETSCRIPT data). */
+ * as with GETSCRIPT data).
+ *
+ * Returns FALSE with *error left untouched if the line simply isn't a
+ * literal (caller falls back to treating it as plain text) — but FALSE
+ * with *error SET if it looks like a literal announcing a size that
+ * overflows or exceeds SIEVE_MANAGESIEVE_MAX_LITERAL_SIZE: the caller
+ * must then abort the response rather than keep parsing, since accepting
+ * the value as-is would mean an unbounded g_malloc() driven entirely by
+ * network input (CWE-789), reachable before StartTLS via the plaintext
+ * banner. */
 static gboolean
-parse_line_with_optional_literal (const gchar *line, gchar **out_prefix, gsize *out_size)
+parse_line_with_optional_literal (const gchar *line, gchar **out_prefix, gsize *out_size,
+                                   GError **error)
 {
   const gchar *brace = strrchr (line, '{');
   const gchar *p;
@@ -312,6 +331,7 @@ parse_line_with_optional_literal (const gchar *line, gchar **out_prefix, gsize *
     return FALSE;
 
   p = brace + 1;
+  errno = 0;
   value = g_ascii_strtoull (p, &endptr, 10);
   if (endptr == p)
     return FALSE;
@@ -321,6 +341,13 @@ parse_line_with_optional_literal (const gchar *line, gchar **out_prefix, gsize *
 
   if (*endptr != '}' || *(endptr + 1) != '\0')
     return FALSE;
+
+  if (errno == ERANGE || value > SIEVE_MANAGESIEVE_MAX_LITERAL_SIZE) {
+    g_set_error (error, SIEVE_MANAGESIEVE_ERROR, SIEVE_MANAGESIEVE_ERROR_PROTOCOL,
+                 "Server announced an oversized literal (%" G_GUINT64_FORMAT
+                 " bytes, max %d)", value, SIEVE_MANAGESIEVE_MAX_LITERAL_SIZE);
+    return FALSE;
+  }
 
   prefix_len = (gsize) (brace - line);
   prefix = g_strndup (line, prefix_len);
@@ -372,7 +399,7 @@ read_response (SieveManageSieveClient *self, GString *out_data,
     if (line == NULL)
       return FALSE;
 
-    if (parse_line_with_optional_literal (line, &prefix, &literal_size)) {
+    if (parse_line_with_optional_literal (line, &prefix, &literal_size, error)) {
       gchar *literal = read_literal_bytes (self, literal_size, cancellable, error);
       gboolean prefix_is_ok  = g_ascii_strncasecmp (prefix, "OK", 2) == 0;
       gboolean prefix_is_no  = g_ascii_strncasecmp (prefix, "NO", 2) == 0;
@@ -419,6 +446,14 @@ read_response (SieveManageSieveClient *self, GString *out_data,
       g_free (literal);
       g_free (prefix);
       continue;
+    }
+
+    /* parse_line_with_optional_literal() sets *error (without returning
+     * TRUE) only for a literal whose announced size is invalid — abort
+     * rather than fall through and treat the line as plain text. */
+    if (error != NULL && *error != NULL) {
+      g_free (line);
+      return FALSE;
     }
 
     if (g_ascii_strncasecmp (line, "OK", 2) == 0) {
@@ -667,7 +702,7 @@ read_auth_reply (SieveManageSieveClient *self,
   if (line == NULL)
     return FALSE;
 
-  if (parse_line_with_optional_literal (line, &prefix, &literal_size)) {
+  if (parse_line_with_optional_literal (line, &prefix, &literal_size, error)) {
     gchar *literal = read_literal_bytes (self, literal_size, cancellable, error);
     gchar *tail;
 
@@ -708,6 +743,14 @@ read_auth_reply (SieveManageSieveClient *self,
     g_set_error (error, SIEVE_MANAGESIEVE_ERROR, SIEVE_MANAGESIEVE_ERROR_PROTOCOL,
                  "Unexpected response during AUTHENTICATE: %s {…}", prefix);
     g_free (literal); g_free (prefix);
+    return FALSE;
+  }
+
+  /* parse_line_with_optional_literal() sets *error (without returning
+   * TRUE) only for a literal whose announced size is invalid — abort
+   * rather than fall through and treat the line as a challenge. */
+  if (error != NULL && *error != NULL) {
+    g_free (line);
     return FALSE;
   }
 
