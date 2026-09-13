@@ -272,9 +272,23 @@ rule is serialized as `if false # <mode>(<conditions>)` — the same
 convention Roundcube's managesieve plugin uses — so the original test
 survives re-enabling; a trailing comment that doesn't parse as a
 recognizable test falls back to opaque rather than being silently
-dropped. Remaining: a real RFC 5228 parser to make opaque rules
-editable, `variables`, rule reordering · network cancellation on the UI
-side.
+dropped. An opaque rule can be reinterpreted on demand: `sieve_rule_unlock()`
+retries the same `if allof/anyof(...) { actions }` grammar as
+`sieve_rule_set_parse()`, but **without** requiring a leading
+`# rule:[name]` marker — it's triggered per rule (the "Unlock" button
+under the padlock view in `sieve-rule-editor.c`), typically after the
+user has fixed up the text in the "Raw text" tab, so relaxing the
+marker there doesn't risk the tolerant whole-script parse silently
+reinterpreting a foreign block (Nextcloud Mail, Roundcube) elsewhere in
+the script. On failure the rule is left untouched (still opaque, exact
+text preserved) and the reason is shown inline. Rule order can be
+changed from the visual editor (up/down buttons in the rule list's
+toolbar, next to +/-/reload) — order matters in Sieve (top-to-bottom
+evaluation, `stop` short-circuits the rest), including for opaque
+rules (only their position moves, not their content). Remaining: a
+real RFC 5228 parser to make more constructs (`not`, `exists`, nested
+`anyof`, `vacation`…) representable at all, `variables` · network
+cancellation on the UI side.
 
 `sieve-model` / `sieve-rule-editor` are independent of Evolution — keep
 it that way. The editor is therefore unaware of where the folders come

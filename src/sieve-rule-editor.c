@@ -26,6 +26,8 @@ struct _SieveRuleEditor {
                              * (ref kept: survives any reparenting) */
   GtkWidget    *remove_rule_button;
   GtkWidget    *refresh_rule_button;
+  GtkWidget    *move_up_button;
+  GtkWidget    *move_down_button;
 };
 
 G_DEFINE_TYPE (SieveRuleEditor, sieve_rule_editor, GTK_TYPE_BOX)
@@ -51,6 +53,15 @@ emit_changed (SieveRuleEditor *self)
 {
   if (!self->updating)
     g_signal_emit (self, signals[SIG_CHANGED], 0);
+}
+
+static void
+update_move_sensitivity (SieveRuleEditor *self)
+{
+  gtk_widget_set_sensitive (self->move_up_button, self->selected > 0);
+  gtk_widget_set_sensitive (self->move_down_button,
+                            self->selected >= 0 &&
+                            self->selected < (gint) self->model->rules->len - 1);
 }
 
 static void
@@ -549,6 +560,7 @@ on_row_selected (GtkListBox *box, GtkListBoxRow *row, SieveRuleEditor *self)
     return;
   self->selected = (row != NULL) ? gtk_list_box_row_get_index (row) : -1;
   rebuild_detail (self);
+  update_move_sensitivity (self);
 }
 
 static void
@@ -606,6 +618,46 @@ on_refresh_rules (GtkButton *button, SieveRuleEditor *self)
   /* The editor doesn't know where the rules come from: it just signals
    * the request. The dialog reloads from the server. */
   g_signal_emit (self, signals[SIG_REFRESH], 0);
+}
+
+/* Order matters: rules are evaluated top to bottom, and a "Stop
+ * processing" action short-circuits the rest -- so moving a rule up or
+ * down is a real semantic change, not just cosmetic. Works for opaque
+ * rules too (their position changes, not their content). */
+static void
+move_rule (SieveRuleEditor *self, gint delta)
+{
+  guint len = self->model->rules->len;
+  gint target = self->selected + delta;
+  gpointer tmp;
+
+  if (self->selected < 0 || self->selected >= (gint) len ||
+      target < 0 || target >= (gint) len)
+    return;
+
+  tmp = g_ptr_array_index (self->model->rules, self->selected);
+  g_ptr_array_index (self->model->rules, self->selected) =
+    g_ptr_array_index (self->model->rules, target);
+  g_ptr_array_index (self->model->rules, target) = tmp;
+
+  self->selected = target;
+  rebuild_rule_list (self);
+  rebuild_detail (self);
+  emit_changed (self);
+}
+
+static void
+on_move_rule_up (GtkButton *button, SieveRuleEditor *self)
+{
+  (void) button;
+  move_rule (self, -1);
+}
+
+static void
+on_move_rule_down (GtkButton *button, SieveRuleEditor *self)
+{
+  (void) button;
+  move_rule (self, +1);
 }
 
 static void
@@ -814,6 +866,8 @@ rebuild_rule_list (SieveRuleEditor *self)
       gtk_list_box_select_row (GTK_LIST_BOX (self->rule_list), row);
   }
 
+  update_move_sensitivity (self);
+
   self->updating = FALSE;
 }
 
@@ -987,9 +1041,23 @@ sieve_rule_editor_init (SieveRuleEditor *self)
   /* Nothing to reload until a session is open: the dialog enables it via
    * sieve_rule_editor_set_refresh_sensitive(). */
   gtk_widget_set_sensitive (self->refresh_rule_button, FALSE);
+  self->move_up_button =
+    gtk_button_new_from_icon_name ("go-up-symbolic", GTK_ICON_SIZE_BUTTON);
+  gtk_widget_set_tooltip_text (self->move_up_button,
+                               _("Move the selected rule up"));
+  self->move_down_button =
+    gtk_button_new_from_icon_name ("go-down-symbolic", GTK_ICON_SIZE_BUTTON);
+  gtk_widget_set_tooltip_text (self->move_down_button,
+                               _("Move the selected rule down"));
+  /* No selection yet at this point: rebuild_rule_list() below sets the
+   * real sensitivity once rules (if any) are loaded. */
+  gtk_widget_set_sensitive (self->move_up_button, FALSE);
+  gtk_widget_set_sensitive (self->move_down_button, FALSE);
   gtk_box_pack_start (GTK_BOX (buttons), add_btn, FALSE, FALSE, 0);
   gtk_box_pack_start (GTK_BOX (buttons), self->remove_rule_button, FALSE, FALSE, 0);
   gtk_box_pack_start (GTK_BOX (buttons), self->refresh_rule_button, FALSE, FALSE, 0);
+  gtk_box_pack_start (GTK_BOX (buttons), self->move_up_button, FALSE, FALSE, 0);
+  gtk_box_pack_start (GTK_BOX (buttons), self->move_down_button, FALSE, FALSE, 0);
   /* Ownership stays with the editor, regardless of its future parent. */
   self->toolbar = g_object_ref_sink (buttons);
 
@@ -1019,6 +1087,10 @@ sieve_rule_editor_init (SieveRuleEditor *self)
   g_signal_connect (self->remove_rule_button, "clicked", G_CALLBACK (on_remove_rule), self);
   g_signal_connect (self->refresh_rule_button, "clicked",
                     G_CALLBACK (on_refresh_rules), self);
+  g_signal_connect (self->move_up_button, "clicked",
+                    G_CALLBACK (on_move_rule_up), self);
+  g_signal_connect (self->move_down_button, "clicked",
+                    G_CALLBACK (on_move_rule_down), self);
 
   rebuild_detail (self);
 }
