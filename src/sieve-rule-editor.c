@@ -126,6 +126,61 @@ action_takes_arg (SieveActionType type)
 
 /* ---- "Condition" row ------------------------------------------------- */
 
+/* Joins `values` (>= 1 entries) with ", " for display in the (single-
+ * line) value entry. A literal "," or "\" within a value is escaped
+ * ("\," / "\\") so it survives being typed back through
+ * split_values_from_entry_text() as part of the same entry instead of
+ * being mistaken for a separator — important for values that
+ * legitimately contain a comma, e.g. a ":regex" pattern like
+ * "(Foo|Bar), Example" (see github issue #1). */
+static gchar *
+join_values_for_entry (const GPtrArray *values)
+{
+  GString *out = g_string_new (NULL);
+
+  for (guint i = 0; i < values->len; i++) {
+    const gchar *v = g_ptr_array_index (values, i);
+
+    if (i > 0)
+      g_string_append (out, ", ");
+    for (const gchar *p = v; *p != '\0'; p++) {
+      if (*p == ',' || *p == '\\')
+        g_string_append_c (out, '\\');
+      g_string_append_c (out, *p);
+    }
+  }
+  return g_string_free (out, FALSE);
+}
+
+/* Splits comma-separated entry text back into a values list ("matches
+ * any of these values" — see sieve-model.h), the reverse of
+ * join_values_for_entry(): "\," is a literal comma, "\\" a literal
+ * backslash, and only an unescaped "," separates entries. Each entry is
+ * trimmed of surrounding whitespace; always returns at least one entry
+ * (a lone empty string for a blank field), matching
+ * sieve_condition_new(). */
+static GPtrArray *
+split_values_from_entry_text (const gchar *text)
+{
+  GPtrArray *out = g_ptr_array_new_with_free_func (g_free);
+  GString *cur = g_string_new (NULL);
+
+  for (const gchar *p = text != NULL ? text : ""; *p != '\0'; p++) {
+    if (*p == '\\' && p[1] != '\0') {
+      g_string_append_c (cur, *++p);
+    } else if (*p == ',') {
+      g_ptr_array_add (out, g_strdup (g_strstrip (cur->str)));
+      g_string_set_size (cur, 0);
+    } else {
+      g_string_append_c (cur, *p);
+    }
+  }
+  g_ptr_array_add (out, g_strdup (g_strstrip (cur->str)));
+  g_string_free (cur, TRUE);
+
+  return out;
+}
+
 static void
 on_cond_field_changed (GtkComboBox *combo, RowCtx *ctx)
 {
@@ -143,6 +198,9 @@ on_cond_field_changed (GtkComboBox *combo, RowCtx *ctx)
   if (c->field == SIEVE_FIELD_SIZE) {
     if (c->match != SIEVE_MATCH_OVER && c->match != SIEVE_MATCH_UNDER)
       c->match = SIEVE_MATCH_OVER;
+    /* "size" never takes a list of values: collapse to the first one. */
+    if (c->values->len > 1)
+      sieve_condition_set_value (c, sieve_condition_get_value (c));
   } else if (c->match == SIEVE_MATCH_OVER || c->match == SIEVE_MATCH_UNDER) {
     c->match = SIEVE_MATCH_CONTAINS;
   }
@@ -187,11 +245,19 @@ static void
 on_cond_value_changed (GtkEntry *entry, RowCtx *ctx)
 {
   SieveCondition *c = ctx->item;
+  const gchar *text;
 
   if (ctx->self->updating)
     return;
-  g_free (c->value);
-  c->value = g_strdup (gtk_entry_get_text (entry));
+  text = gtk_entry_get_text (entry);
+  if (c->field == SIEVE_FIELD_SIZE) {
+    /* "size" never takes a list: a comma there is part of the value
+     * (unlikely, but not this field's job to reject). */
+    sieve_condition_set_value (c, text);
+  } else {
+    g_ptr_array_unref (c->values);
+    c->values = split_values_from_entry_text (text);
+  }
   emit_changed (ctx->self);
 }
 
@@ -245,9 +311,15 @@ build_condition_row (SieveRuleEditor *self, SieveCondition *c)
   value_entry = gtk_entry_new ();
   gtk_widget_set_hexpand (value_entry, TRUE);
   gtk_entry_set_placeholder_text (GTK_ENTRY (value_entry),
-                                  is_size ? "1M" : _("value to match"));
-  if (c->value != NULL)
-    gtk_entry_set_text (GTK_ENTRY (value_entry), c->value);
+                                  is_size ? "1M" : _("value to match (comma-separated for several)"));
+  if (!is_size)
+    gtk_widget_set_tooltip_text (value_entry,
+      _("Several values: separate with a comma. A literal comma or backslash "
+        "in a value is written \"\\,\" / \"\\\\\"."));
+  {
+    g_autofree gchar *joined = join_values_for_entry (c->values);
+    gtk_entry_set_text (GTK_ENTRY (value_entry), joined);
+  }
 
   remove_btn = gtk_button_new_from_icon_name ("list-remove-symbolic", GTK_ICON_SIZE_BUTTON);
   gtk_widget_set_tooltip_text (remove_btn, _("Remove this condition"));

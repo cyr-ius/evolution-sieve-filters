@@ -159,8 +159,7 @@ seed_rule_from_message (CamelMimeMessage *message)
   rule->mode = SIEVE_MATCH_MODE_ALL;
 
   cond = sieve_condition_new ();   /* field = From, match = :contains */
-  g_free (cond->value);
-  cond->value = g_strdup (email);
+  sieve_condition_set_value (cond, email);
   g_ptr_array_add (rule->conditions, cond);
 
   return rule;

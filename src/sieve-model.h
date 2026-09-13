@@ -76,7 +76,16 @@ typedef struct {
   SieveField field;
   gchar     *header_name; /* relevant if field == SIEVE_FIELD_HEADER */
   SieveMatch match;
-  gchar     *value;       /* search pattern, or "1M" / "500K" for size */
+  GPtrArray *values;      /* elements: gchar*; always at least one entry.
+                              A single search pattern, or "1M" / "500K"
+                              for size. More than one entry (header/
+                              address/envelope/body fields only) means
+                              "matches any of these values" and is
+                              serialized as a Sieve string list
+                              (["a", "b", ...]) instead of a bare
+                              string. Use sieve_condition_get_value() /
+                              sieve_condition_set_value() for the common
+                              single-value case. */
 } SieveCondition;
 
 typedef enum {
@@ -121,6 +130,15 @@ typedef struct {
 
 SieveCondition *sieve_condition_new  (void);
 void            sieve_condition_free (SieveCondition *cond);
+
+/* Replaces the whole `values` list with a single entry: the common case
+ * (one search pattern, or the size limit). */
+void            sieve_condition_set_value (SieveCondition *cond, const gchar *value);
+
+/* First entry of `values`, or "" if it is empty (shouldn't happen:
+ * sieve_condition_new() always seeds one). Does not reflect further
+ * entries when `values` holds a list. */
+const gchar    *sieve_condition_get_value (const SieveCondition *cond);
 
 SieveAction    *sieve_action_new  (SieveActionType type);
 void            sieve_action_free (SieveAction *action);

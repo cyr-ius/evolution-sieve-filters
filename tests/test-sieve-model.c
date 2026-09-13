@@ -29,12 +29,10 @@ test_roundtrip_basic (void)
   r->mode = SIEVE_MATCH_MODE_ANY;
   c1->field = SIEVE_FIELD_FROM;
   c1->match = SIEVE_MATCH_CONTAINS;
-  g_free (c1->value);
-  c1->value = g_strdup ("news@example.com");
+  sieve_condition_set_value (c1, "news@example.com");
   c2->field = SIEVE_FIELD_SUBJECT;
   c2->match = SIEVE_MATCH_MATCHES;
-  g_free (c2->value);
-  c2->value = g_strdup ("*promo*");
+  sieve_condition_set_value (c2, "*promo*");
   g_ptr_array_add (r->conditions, c1);
   g_ptr_array_add (r->conditions, c2);
   a1->arg = g_strdup ("INBOX/News");
@@ -65,7 +63,7 @@ test_roundtrip_basic (void)
   bc = g_ptr_array_index (br->conditions, 0);
   g_assert_cmpint (bc->field, ==, SIEVE_FIELD_FROM);
   g_assert_cmpint (bc->match, ==, SIEVE_MATCH_CONTAINS);
-  g_assert_cmpstr (bc->value, ==, "news@example.com");
+  g_assert_cmpstr (sieve_condition_get_value (bc), ==, "news@example.com");
 
   /* Re-serialization must be stable down to the last character. */
   script2 = sieve_rule_set_to_script (back);
@@ -90,17 +88,14 @@ test_roundtrip_size_body_header (void)
 
   c1->field = SIEVE_FIELD_SIZE;
   c1->match = SIEVE_MATCH_OVER;
-  g_free (c1->value);
-  c1->value = g_strdup ("2M");
+  sieve_condition_set_value (c1, "2M");
   c2->field = SIEVE_FIELD_BODY;
   c2->match = SIEVE_MATCH_CONTAINS;
-  g_free (c2->value);
-  c2->value = g_strdup ("forbidden pattern");
+  sieve_condition_set_value (c2, "forbidden pattern");
   c3->field = SIEVE_FIELD_HEADER;
   c3->header_name = g_strdup ("X-Spam-Flag");
   c3->match = SIEVE_MATCH_IS;
-  g_free (c3->value);
-  c3->value = g_strdup ("YES");
+  sieve_condition_set_value (c3, "YES");
   g_ptr_array_add (r->conditions, c1);
   g_ptr_array_add (r->conditions, c2);
   g_ptr_array_add (r->conditions, c3);
@@ -361,8 +356,7 @@ test_regex_roundtrip (void)
 
   c->field = SIEVE_FIELD_BODY;
   c->match = SIEVE_MATCH_REGEX;
-  g_free (c->value);
-  c->value = g_strdup ("(Foo|Bar), Example");
+  sieve_condition_set_value (c, "(Foo|Bar), Example");
   g_ptr_array_add (r->conditions, c);
   g_ptr_array_add (r->actions, sieve_action_new (SIEVE_ACTION_KEEP));
   g_ptr_array_add (set->rules, r);
@@ -377,7 +371,7 @@ test_regex_roundtrip (void)
   g_assert_false (br->opaque);
   bc = g_ptr_array_index (br->conditions, 0);
   g_assert_cmpint (bc->match, ==, SIEVE_MATCH_REGEX);
-  g_assert_cmpstr (bc->value, ==, "(Foo|Bar), Example");
+  g_assert_cmpstr (sieve_condition_get_value (bc), ==, "(Foo|Bar), Example");
 
   script2 = sieve_rule_set_to_script (back);
   g_assert_cmpstr (script, ==, script2);
@@ -414,7 +408,7 @@ test_regex_in_handwritten_rule_kept_verbatim (void)
 
   c2 = g_ptr_array_index (r->conditions, 1);
   g_assert_cmpint (c2->match, ==, SIEVE_MATCH_REGEX);
-  g_assert_cmpstr (c2->value, ==, "(Foo|Bar), Example");
+  g_assert_cmpstr (sieve_condition_get_value (c2), ==, "(Foo|Bar), Example");
 
   out = sieve_rule_set_to_script (set);
   g_assert_nonnull (strstr (out, ":regex \"(Foo|Bar), Example\""));
@@ -422,10 +416,11 @@ test_regex_in_handwritten_rule_kept_verbatim (void)
 }
 
 /* github issue #1: a value list with more than one entry
- * (`["a","b"]`) must not be truncated to its first element — the whole
- * rule falls back to opaque, keeping every entry verbatim. */
+ * (`["a","b"]`) must not be truncated to its first element. The model
+ * now represents the full list (SieveCondition.values): the rule stays
+ * fully structured/editable and every entry survives the round trip. */
 static void
-test_multi_value_list_kept_verbatim (void)
+test_multi_value_list_stays_editable (void)
 {
   const gchar *script =
     "# rule:[Cooker]\n"
@@ -436,14 +431,70 @@ test_multi_value_list_kept_verbatim (void)
     "}\n";
   g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
   SieveRule *r;
+  SieveCondition *c0, *c1;
+  g_autofree gchar *out = NULL;
+  g_autofree gchar *out2 = NULL;
 
   g_assert_nonnull (set);
   g_assert_cmpuint (set->rules->len, ==, 1);
   r = g_ptr_array_index (set->rules, 0);
-  g_assert_true (r->opaque);
-  g_assert_nonnull (strstr (r->raw, "\"devel@mandrakesoft.com\""));
-  g_assert_nonnull (strstr (r->raw, "\"changelog@linux-mandrake.com\""));
-  g_assert_nonnull (strstr (r->raw, "\"cooker@\""));
+  g_assert_false (r->opaque);
+  g_assert_cmpuint (r->conditions->len, ==, 2);
+
+  c0 = g_ptr_array_index (r->conditions, 0);
+  g_assert_cmpuint (c0->values->len, ==, 2);
+  g_assert_cmpstr (g_ptr_array_index (c0->values, 0), ==, "cooker-owner@linux-mandrake.com");
+  g_assert_cmpstr (g_ptr_array_index (c0->values, 1), ==, "devel@mandrakesoft.com");
+
+  c1 = g_ptr_array_index (r->conditions, 1);
+  g_assert_cmpuint (c1->values->len, ==, 3);
+  g_assert_cmpstr (g_ptr_array_index (c1->values, 2), ==, "cooker@");
+
+  out = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (out,
+    "header :is \"sender\" [\"cooker-owner@linux-mandrake.com\", \"devel@mandrakesoft.com\"]"));
+  g_assert_nonnull (strstr (out, "\"changelog@linux-mandrake.com\""));
+  g_assert_nonnull (strstr (out, "\"cooker@\""));
+
+  {
+    g_autoptr (SieveRuleSet) back = sieve_rule_set_parse (out, NULL);
+    out2 = sieve_rule_set_to_script (back);
+  }
+  g_assert_cmpstr (out, ==, out2);
+}
+
+/* github issue #1: the exact "list-id" example — a single unwrapped
+ * `header :contains "list-id" [...]` test with three values — must stay
+ * fully editable with all three values, not get wrapped into
+ * "allof (... single value)" nor lose any entry. (A "# rule:[...]"
+ * marker is required for structured parsing to even be attempted — see
+ * test_parse_single_unwrapped_test — the plugin always writes one when
+ * re-serializing, which is why a round-tripped script always has it.) */
+static void
+test_list_id_example_stays_editable (void)
+{
+  const gchar *script =
+    "# rule:[List-Id]\n"
+    "if header :contains \"list-id\" [\"mplayer-users.mplayerhq.hu\","
+    "\"mplayer-dev-eng.mplayerhq.hu\",\"mplayer-matrox.lists.sourceforge.net\"]\n"
+    "{\n"
+    "\tkeep;\n"
+    "}\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+  SieveRule *r;
+  SieveCondition *c;
+
+  g_assert_nonnull (set);
+  g_assert_cmpuint (set->rules->len, ==, 1);
+  r = g_ptr_array_index (set->rules, 0);
+  g_assert_false (r->opaque);
+  g_assert_cmpuint (r->conditions->len, ==, 1);
+
+  c = g_ptr_array_index (r->conditions, 0);
+  g_assert_cmpuint (c->values->len, ==, 3);
+  g_assert_cmpstr (g_ptr_array_index (c->values, 0), ==, "mplayer-users.mplayerhq.hu");
+  g_assert_cmpstr (g_ptr_array_index (c->values, 1), ==, "mplayer-dev-eng.mplayerhq.hu");
+  g_assert_cmpstr (g_ptr_array_index (c->values, 2), ==, "mplayer-matrox.lists.sourceforge.net");
 }
 
 /* A singleton list ("[\"a\"]") is semantically a bare string and stays
@@ -466,7 +517,7 @@ test_single_value_list_stays_editable (void)
   r = g_ptr_array_index (set->rules, 0);
   g_assert_false (r->opaque);
   c = g_ptr_array_index (r->conditions, 0);
-  g_assert_cmpstr (c->value, ==, "mplayer-users.mplayerhq.hu");
+  g_assert_cmpstr (sieve_condition_get_value (c), ==, "mplayer-users.mplayerhq.hu");
 }
 
 /* github issue #1: "if false # ..." must NOT be re-serialized as
@@ -529,7 +580,8 @@ main (int argc, char **argv)
   g_test_add_func ("/sieve-model/regex-roundtrip", test_regex_roundtrip);
   g_test_add_func ("/sieve-model/regex-in-handwritten-rule-kept-verbatim",
                    test_regex_in_handwritten_rule_kept_verbatim);
-  g_test_add_func ("/sieve-model/multi-value-list-kept-verbatim", test_multi_value_list_kept_verbatim);
+  g_test_add_func ("/sieve-model/multi-value-list-stays-editable", test_multi_value_list_stays_editable);
+  g_test_add_func ("/sieve-model/list-id-example-stays-editable", test_list_id_example_stays_editable);
   g_test_add_func ("/sieve-model/single-value-list-stays-editable", test_single_value_list_stays_editable);
   g_test_add_func ("/sieve-model/if-false-kept-verbatim", test_if_false_kept_verbatim);
   return g_test_run ();

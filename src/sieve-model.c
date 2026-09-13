@@ -14,7 +14,8 @@ sieve_condition_new (void)
   SieveCondition *c = g_new0 (SieveCondition, 1);
   c->field = SIEVE_FIELD_FROM;
   c->match = SIEVE_MATCH_CONTAINS;
-  c->value = g_strdup ("");
+  c->values = g_ptr_array_new_with_free_func (g_free);
+  g_ptr_array_add (c->values, g_strdup (""));
   return c;
 }
 
@@ -24,8 +25,23 @@ sieve_condition_free (SieveCondition *cond)
   if (cond == NULL)
     return;
   g_free (cond->header_name);
-  g_free (cond->value);
+  g_clear_pointer (&cond->values, g_ptr_array_unref);
   g_free (cond);
+}
+
+void
+sieve_condition_set_value (SieveCondition *cond, const gchar *value)
+{
+  g_ptr_array_set_size (cond->values, 0);
+  g_ptr_array_add (cond->values, g_strdup (value != NULL ? value : ""));
+}
+
+const gchar *
+sieve_condition_get_value (const SieveCondition *cond)
+{
+  if (cond->values == NULL || cond->values->len == 0)
+    return "";
+  return g_ptr_array_index (cond->values, 0);
 }
 
 SieveAction *
@@ -151,26 +167,46 @@ sanitize_rule_name (const gchar *name)
   return g_string_free (out, FALSE);
 }
 
+/* Appends a single value as a bare quoted string, or several as a
+ * Sieve string list ["a", "b", ...] ("matches any of these values"). */
+static void
+append_values (GString *out, const GPtrArray *values)
+{
+  if (values->len <= 1) {
+    append_quoted (out, (values->len == 1) ? g_ptr_array_index (values, 0) : "");
+    return;
+  }
+
+  g_string_append_c (out, '[');
+  for (guint i = 0; i < values->len; i++) {
+    if (i > 0)
+      g_string_append (out, ", ");
+    append_quoted (out, g_ptr_array_index (values, i));
+  }
+  g_string_append_c (out, ']');
+}
+
 static void
 append_condition (GString *out, const SieveCondition *c)
 {
   if (c->field == SIEVE_FIELD_SIZE) {
+    const gchar *v = sieve_condition_get_value (c);
     g_string_append_printf (out, "size %s %s",
                             c->match == SIEVE_MATCH_UNDER ? ":under" : ":over",
-                            (c->value != NULL && *c->value != '\0') ? c->value : "1M");
+                            (*v != '\0') ? v : "1M");
     return;
   }
 
   if (c->field == SIEVE_FIELD_BODY) {
     g_string_append_printf (out, "body :text %s ", match_tag (c->match));
-    append_quoted (out, c->value);
+    append_values (out, c->values);
     return;
   }
 
   g_string_append_printf (out, "header %s ", match_tag (c->match));
   append_quoted (out, field_header_name (c->field, c->header_name));
   g_string_append_c (out, ' ');
-  append_quoted (out, c->value);
+  append_values (out, c->values);
 }
 
 static void
@@ -527,6 +563,60 @@ fail:
   return FALSE;
 }
 
+/* Like expect_string(), but for a test's *value* argument, where the
+ * visual editor can represent a list of any length ("matches any of
+ * these values"): every entry is kept, in order. Returns a newly
+ * allocated GPtrArray of at least one gchar* on success, NULL + `error`
+ * otherwise. */
+static GPtrArray *
+expect_string_list (Lex *lx, GError **error)
+{
+  GPtrArray *out = g_ptr_array_new_with_free_func (g_free);
+
+  if (lx->kind == TK_LBRACKET) {
+    if (!lex_advance (lx, error))
+      goto fail;
+    if (lx->kind != TK_STRING) {
+      unsupported (error, "expected a string in the list");
+      goto fail;
+    }
+    g_ptr_array_add (out, g_strdup (lx->val));
+    if (!lex_advance (lx, error))
+      goto fail;
+    while (lx->kind == TK_COMMA) {
+      if (!lex_advance (lx, error))
+        goto fail;
+      if (lx->kind != TK_STRING) {
+        unsupported (error, "expected a string in the list");
+        goto fail;
+      }
+      g_ptr_array_add (out, g_strdup (lx->val));
+      if (!lex_advance (lx, error))
+        goto fail;
+    }
+    if (lx->kind != TK_RBRACKET) {
+      unsupported (error, "expected \"]\" to close the list");
+      goto fail;
+    }
+    if (!lex_advance (lx, error))
+      goto fail;
+    return out;
+  }
+
+  if (lx->kind != TK_STRING) {
+    unsupported (error, "expected a string");
+    goto fail;
+  }
+  g_ptr_array_add (out, g_strdup (lx->val));
+  if (!lex_advance (lx, error))
+    goto fail;
+  return out;
+
+fail:
+  g_ptr_array_unref (out);
+  return NULL;
+}
+
 static gboolean
 match_from_tag (const gchar *tag, SieveMatch *out)
 {
@@ -587,7 +677,8 @@ parse_test (Lex *lx, SieveRule *rule, GError **error)
 
   if (g_strcmp0 (name, "header") == 0 || g_strcmp0 (name, "address") == 0 ||
       g_strcmp0 (name, "envelope") == 0) {
-    gchar *hdr = NULL, *val = NULL;
+    gchar *hdr = NULL;
+    GPtrArray *vals;
 
     c = sieve_condition_new ();
     if (!lex_advance (lx, error))
@@ -606,14 +697,15 @@ parse_test (Lex *lx, SieveRule *rule, GError **error)
     }
     if (!expect_string (lx, &hdr, error))
       goto out;
-    if (!expect_string (lx, &val, error)) {
+    vals = expect_string_list (lx, error);
+    if (vals == NULL) {
       g_free (hdr);
       goto out;
     }
     set_field_from_header (c, hdr);
-    g_free (c->value);
-    c->value = val;
     g_free (hdr);
+    g_ptr_array_unref (c->values);
+    c->values = vals;
     g_ptr_array_add (rule->conditions, g_steal_pointer (&c));
     ok = TRUE;
     goto out;
@@ -635,8 +727,7 @@ parse_test (Lex *lx, SieveRule *rule, GError **error)
       unsupported (error, "expected a size after \"size\" (e.g. 1M)");
       goto out;
     }
-    g_free (c->value);
-    c->value = g_strdup (lx->val);
+    sieve_condition_set_value (c, lx->val);
     if (!lex_advance (lx, error))
       goto out;
     g_ptr_array_add (rule->conditions, g_steal_pointer (&c));
@@ -645,7 +736,7 @@ parse_test (Lex *lx, SieveRule *rule, GError **error)
   }
 
   if (g_strcmp0 (name, "body") == 0) {
-    gchar *val = NULL;
+    GPtrArray *vals;
 
     c = sieve_condition_new ();
     c->field = SIEVE_FIELD_BODY;
@@ -669,10 +760,11 @@ parse_test (Lex *lx, SieveRule *rule, GError **error)
       if (!lex_advance (lx, error))
         goto out;
     }
-    if (!expect_string (lx, &val, error))
+    vals = expect_string_list (lx, error);
+    if (vals == NULL)
       goto out;
-    g_free (c->value);
-    c->value = val;
+    g_ptr_array_unref (c->values);
+    c->values = vals;
     g_ptr_array_add (rule->conditions, g_steal_pointer (&c));
     ok = TRUE;
     goto out;

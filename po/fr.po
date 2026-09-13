@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: evolution-sieve-filters 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-13 11:42+0000\n"
+"POT-Creation-Date: 2026-09-13 11:57+0000\n"
 "PO-Revision-Date: 2026-09-12+00:00\n"
 "Last-Translator: \n"
 "Language-Team: French\n"
@@ -20,19 +20,19 @@ msgstr ""
 msgid "Message from %s"
 msgstr "Message de %s"
 
-#: src/module-sieve-filters.c:348
+#: src/module-sieve-filters.c:347
 msgid "_Sieve Filters…"
 msgstr "Filtres _Sieve…"
 
-#: src/module-sieve-filters.c:350
+#: src/module-sieve-filters.c:349
 msgid "Manage server-side Sieve mail filters"
 msgstr "Gérer les filtres de courrier Sieve côté serveur"
 
-#: src/module-sieve-filters.c:355
+#: src/module-sieve-filters.c:354
 msgid "Create a _Sieve Filter…"
 msgstr "Créer un filtre _Sieve…"
 
-#: src/module-sieve-filters.c:357
+#: src/module-sieve-filters.c:356
 msgid "Create a server-side Sieve rule from the selected message's sender"
 msgstr ""
 "Créer une règle Sieve côté serveur à partir de l'expéditeur du message "
@@ -64,8 +64,8 @@ msgstr "Déconnecté."
 msgid "— Choose an account —"
 msgstr "— Choisir un compte —"
 
-#: src/sieve-editor-dialog.c:402 src/sieve-rule-editor.c:401
-#: src/sieve-rule-editor.c:611
+#: src/sieve-editor-dialog.c:402 src/sieve-rule-editor.c:473
+#: src/sieve-rule-editor.c:683
 msgid "(unnamed)"
 msgstr "(sans nom)"
 
@@ -468,112 +468,120 @@ msgstr ""
 "Tente une connexion et une authentification au serveur ManageSieve avec les "
 "paramètres ci-dessus, sans les enregistrer."
 
-#: src/sieve-rule-editor.c:220
+#: src/sieve-rule-editor.c:286
 msgid "Sender (From)"
 msgstr "Expéditeur (De)"
 
-#: src/sieve-rule-editor.c:220
+#: src/sieve-rule-editor.c:286
 msgid "Recipient (To)"
 msgstr "Destinataire (À)"
 
-#: src/sieve-rule-editor.c:220
+#: src/sieve-rule-editor.c:286
 msgid "Copy (Cc)"
 msgstr "Copie (Cc)"
 
-#: src/sieve-rule-editor.c:220
+#: src/sieve-rule-editor.c:286
 msgid "Subject"
 msgstr "Objet"
 
-#: src/sieve-rule-editor.c:221
+#: src/sieve-rule-editor.c:287
 msgid "Header…"
 msgstr "En-tête…"
 
-#: src/sieve-rule-editor.c:221
+#: src/sieve-rule-editor.c:287
 msgid "Size"
 msgstr "Taille"
 
-#: src/sieve-rule-editor.c:221
+#: src/sieve-rule-editor.c:287
 msgid "Message body"
 msgstr "Corps du message"
 
-#: src/sieve-rule-editor.c:224
+#: src/sieve-rule-editor.c:290
 msgid "contains"
 msgstr "contient"
 
-#: src/sieve-rule-editor.c:224
+#: src/sieve-rule-editor.c:290
 msgid "is exactly"
 msgstr "est exactement"
 
-#: src/sieve-rule-editor.c:224
+#: src/sieve-rule-editor.c:290
 msgid "matches pattern"
 msgstr "correspond au motif"
 
-#: src/sieve-rule-editor.c:224
+#: src/sieve-rule-editor.c:290
 msgid "matches regex"
 msgstr "correspond à l'expression régulière"
 
-#: src/sieve-rule-editor.c:227
+#: src/sieve-rule-editor.c:293
 msgid "is over"
 msgstr "est supérieur à"
 
-#: src/sieve-rule-editor.c:227
+#: src/sieve-rule-editor.c:293
 msgid "is under"
 msgstr "est inférieur à"
 
-#: src/sieve-rule-editor.c:248
-msgid "value to match"
-msgstr "valeur à comparer"
+#: src/sieve-rule-editor.c:314
+msgid "value to match (comma-separated for several)"
+msgstr "valeur à rechercher (séparez par des virgules pour plusieurs valeurs)"
 
-#: src/sieve-rule-editor.c:253
+#: src/sieve-rule-editor.c:317
+msgid ""
+"Several values: separate with a comma. A literal comma or backslash in a "
+"value is written \"\\,\" / \"\\\\\"."
+msgstr ""
+"Plusieurs valeurs : séparez-les par une virgule. Une virgule ou un "
+"antislash littéral dans une valeur s'écrit « \\, » / « \\\\ »."
+
+#: src/sieve-rule-editor.c:325
 msgid "Remove this condition"
 msgstr "Supprimer cette condition"
 
-#: src/sieve-rule-editor.c:330
+#: src/sieve-rule-editor.c:402
 msgid "Keep"
 msgstr "Conserver"
 
-#: src/sieve-rule-editor.c:330
+#: src/sieve-rule-editor.c:402
 msgid "Discard"
 msgstr "Rejeter"
 
-#: src/sieve-rule-editor.c:330
+#: src/sieve-rule-editor.c:402
 msgid "File into"
 msgstr "Classer dans"
 
-#: src/sieve-rule-editor.c:331
+#: src/sieve-rule-editor.c:403
 msgid "Redirect to"
 msgstr "Rediriger vers"
 
-#: src/sieve-rule-editor.c:331
+#: src/sieve-rule-editor.c:403
 msgid "Add IMAP flag"
 msgstr "Ajouter un indicateur IMAP"
 
-#: src/sieve-rule-editor.c:332
+#: src/sieve-rule-editor.c:404
 msgid "Stop processing"
 msgstr "Arrêter le traitement"
 
-#: src/sieve-rule-editor.c:368
+#: src/sieve-rule-editor.c:440
 msgid "Remove this action"
 msgstr "Supprimer cette action"
 
-#: src/sieve-rule-editor.c:460 src/sieve-rule-editor.c:810
+#: src/sieve-rule-editor.c:532 src/sieve-rule-editor.c:882
 msgid "New rule"
 msgstr "Nouvelle règle"
 
-#: src/sieve-rule-editor.c:499
+#: src/sieve-rule-editor.c:571
 msgid "all of the criteria"
 msgstr "tous les critères"
 
-#: src/sieve-rule-editor.c:499
+#: src/sieve-rule-editor.c:571
 msgid "at least one criterion"
 msgstr "au moins un critère"
 
-#: src/sieve-rule-editor.c:514
+#: src/sieve-rule-editor.c:586
 msgid "Select a rule on the left, or click \"+\" to create one."
 msgstr ""
 "Sélectionnez une règle à gauche, ou cliquez sur « + » pour en créer une."
 
-#: src/sieve-rule-editor.c:528
+#: src/sieve-rule-editor.c:600
 msgid ""
 "This rule comes from another tool (Nextcloud Mail, Roundcube, hand-written "
 "script…) or uses constructs the visual editor cannot represent.\n"
@@ -586,44 +594,47 @@ msgstr ""
 "Elle est affichée ici en lecture seule et copiée telle quelle. Pour la "
 "modifier ou la supprimer, utilisez l'onglet « Texte brut »."
 
-#: src/sieve-rule-editor.c:554
+#: src/sieve-rule-editor.c:626
 msgid "Name:"
 msgstr "Nom :"
 
-#: src/sieve-rule-editor.c:563
+#: src/sieve-rule-editor.c:635
 msgid "Match"
 msgstr "Respecter"
 
-#: src/sieve-rule-editor.c:566
+#: src/sieve-rule-editor.c:638
 msgid "of the following:"
 msgstr "parmi les suivants :"
 
-#: src/sieve-rule-editor.c:570
+#: src/sieve-rule-editor.c:642
 msgid "Criteria"
 msgstr "Critères"
 
-#: src/sieve-rule-editor.c:577
+#: src/sieve-rule-editor.c:649
 msgid "Add a condition"
 msgstr "Ajouter une condition"
 
-#: src/sieve-rule-editor.c:584
+#: src/sieve-rule-editor.c:656
 msgid "Actions"
 msgstr "Actions"
 
-#: src/sieve-rule-editor.c:591
+#: src/sieve-rule-editor.c:663
 msgid "Add an action"
 msgstr "Ajouter une action"
 
-#: src/sieve-rule-editor.c:626
+#: src/sieve-rule-editor.c:698
 msgid "Rule imported from another tool — editable only in the \"Raw text\" tab"
 msgstr ""
 "Règle importée d'un autre outil — modifiable uniquement dans l'onglet "
 "« Texte brut »"
 
-#: src/sieve-rule-editor.c:813
+#: src/sieve-rule-editor.c:885
 msgid "Remove the selected rule"
 msgstr "Supprimer la règle sélectionnée"
 
-#: src/sieve-rule-editor.c:817
+#: src/sieve-rule-editor.c:889
 msgid "Reload rules from the server"
 msgstr "Recharger les règles depuis le serveur"
+
+#~ msgid "value to match"
+#~ msgstr "valeur à comparer"
