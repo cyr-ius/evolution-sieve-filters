@@ -35,7 +35,7 @@ filters.
   stored in plain text; falling back to the IMAP password already known
   to Evolution when unset.
 - **Full authentication support**: PLAIN, LOGIN, CRAM-MD5, SCRAM-SHA-1,
-  SCRAM-SHA-256, as well as OAUTHBEARER / XOAUTH2 for OAuth2 accounts
+  SCRAM-SHA-256, GSSAPI as well as OAUTHBEARER / XOAUTH2 for OAuth2 accounts
   (Gmail, Office 365…), with the token obtained and refreshed via
   evolution-data-server.
 - **Implicit TLS or StartTLS**, server capabilities re-read after the TLS
