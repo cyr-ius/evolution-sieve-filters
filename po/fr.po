@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: evolution-sieve-filters 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-13 11:57+0000\n"
+"POT-Creation-Date: 2026-09-13 12:20+0000\n"
 "PO-Revision-Date: 2026-09-12+00:00\n"
 "Last-Translator: \n"
 "Language-Team: French\n"
@@ -65,7 +65,7 @@ msgid "— Choose an account —"
 msgstr "— Choisir un compte —"
 
 #: src/sieve-editor-dialog.c:402 src/sieve-rule-editor.c:473
-#: src/sieve-rule-editor.c:683
+#: src/sieve-rule-editor.c:717
 msgid "(unnamed)"
 msgstr "(sans nom)"
 
@@ -529,8 +529,8 @@ msgid ""
 "Several values: separate with a comma. A literal comma or backslash in a "
 "value is written \"\\,\" / \"\\\\\"."
 msgstr ""
-"Plusieurs valeurs : séparez-les par une virgule. Une virgule ou un "
-"antislash littéral dans une valeur s'écrit « \\, » / « \\\\ »."
+"Plusieurs valeurs : séparez-les par une virgule. Une virgule ou un antislash "
+"littéral dans une valeur s'écrit « \\, » / « \\\\ »."
 
 #: src/sieve-rule-editor.c:325
 msgid "Remove this condition"
@@ -564,24 +564,28 @@ msgstr "Arrêter le traitement"
 msgid "Remove this action"
 msgstr "Supprimer cette action"
 
-#: src/sieve-rule-editor.c:532 src/sieve-rule-editor.c:882
+#: src/sieve-rule-editor.c:510 src/sieve-rule-editor.c:740
+msgid "Disabled — kept in the script but never applied."
+msgstr "Désactivée — conservée dans le script mais jamais appliquée."
+
+#: src/sieve-rule-editor.c:558 src/sieve-rule-editor.c:921
 msgid "New rule"
 msgstr "Nouvelle règle"
 
-#: src/sieve-rule-editor.c:571
+#: src/sieve-rule-editor.c:597
 msgid "all of the criteria"
 msgstr "tous les critères"
 
-#: src/sieve-rule-editor.c:571
+#: src/sieve-rule-editor.c:597
 msgid "at least one criterion"
 msgstr "au moins un critère"
 
-#: src/sieve-rule-editor.c:586
+#: src/sieve-rule-editor.c:612
 msgid "Select a rule on the left, or click \"+\" to create one."
 msgstr ""
 "Sélectionnez une règle à gauche, ou cliquez sur « + » pour en créer une."
 
-#: src/sieve-rule-editor.c:600
+#: src/sieve-rule-editor.c:626
 msgid ""
 "This rule comes from another tool (Nextcloud Mail, Roundcube, hand-written "
 "script…) or uses constructs the visual editor cannot represent.\n"
@@ -594,45 +598,59 @@ msgstr ""
 "Elle est affichée ici en lecture seule et copiée telle quelle. Pour la "
 "modifier ou la supprimer, utilisez l'onglet « Texte brut »."
 
-#: src/sieve-rule-editor.c:626
+#: src/sieve-rule-editor.c:652
 msgid "Name:"
 msgstr "Nom :"
 
-#: src/sieve-rule-editor.c:635
+#: src/sieve-rule-editor.c:657
+msgid "Enabled"
+msgstr "Activée"
+
+#: src/sieve-rule-editor.c:660
+msgid ""
+"When unchecked, the rule is kept in the script but never applied (saved as "
+"\"if false # …\", read by other Sieve tools such as Roundcube as a disabled "
+"rule)."
+msgstr ""
+"Si décoché, la règle est conservée dans le script mais jamais appliquée "
+"(enregistrée sous la forme « if false # … », reconnue par d'autres outils "
+"Sieve tels que Roundcube comme une règle désactivée)."
+
+#: src/sieve-rule-editor.c:669
 msgid "Match"
 msgstr "Respecter"
 
-#: src/sieve-rule-editor.c:638
+#: src/sieve-rule-editor.c:672
 msgid "of the following:"
 msgstr "parmi les suivants :"
 
-#: src/sieve-rule-editor.c:642
+#: src/sieve-rule-editor.c:676
 msgid "Criteria"
 msgstr "Critères"
 
-#: src/sieve-rule-editor.c:649
+#: src/sieve-rule-editor.c:683
 msgid "Add a condition"
 msgstr "Ajouter une condition"
 
-#: src/sieve-rule-editor.c:656
+#: src/sieve-rule-editor.c:690
 msgid "Actions"
 msgstr "Actions"
 
-#: src/sieve-rule-editor.c:663
+#: src/sieve-rule-editor.c:697
 msgid "Add an action"
 msgstr "Ajouter une action"
 
-#: src/sieve-rule-editor.c:698
+#: src/sieve-rule-editor.c:732
 msgid "Rule imported from another tool — editable only in the \"Raw text\" tab"
 msgstr ""
 "Règle importée d'un autre outil — modifiable uniquement dans l'onglet "
 "« Texte brut »"
 
-#: src/sieve-rule-editor.c:885
+#: src/sieve-rule-editor.c:924
 msgid "Remove the selected rule"
 msgstr "Supprimer la règle sélectionnée"
 
-#: src/sieve-rule-editor.c:889
+#: src/sieve-rule-editor.c:928
 msgid "Reload rules from the server"
 msgstr "Recharger les règles depuis le serveur"
 

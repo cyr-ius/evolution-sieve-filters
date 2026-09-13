@@ -6,8 +6,9 @@
  *
  * Scope deliberately kept narrow for a usable first cut:
  *   - an ordered rule set (SieveRuleSet)
- *   - each rule: a name, a match mode (allof / anyof), a list of
- *     conditions (SieveCondition) and a list of actions (SieveAction)
+ *   - each rule: a name, an enabled/disabled flag, a match mode
+ *     (allof / anyof), a list of conditions (SieveCondition) and a list
+ *     of actions (SieveAction)
  *   - conditions: From / To / Cc / Subject / generic header / size /
  *     body, with :contains / :is / :matches / :regex (and :over / :under
  *     for size)
@@ -112,6 +113,14 @@ typedef struct {
   SieveMatchMode mode;
   GPtrArray     *conditions; /* elements: SieveCondition* */
   GPtrArray     *actions;    /* elements: SieveAction*    */
+  gboolean       enabled;    /* FALSE: the rule's test is serialized as
+                                "if false # <mode>(<conditions>)" — the
+                                same convention as Roundcube's managesieve
+                                plugin for a disabled rule — instead of
+                                "if allof/anyof (...)"; `conditions`/`mode`
+                                are otherwise used exactly as when
+                                enabled, so re-enabling the rule doesn't
+                                lose anything. TRUE by default. */
   gboolean       opaque;     /* TRUE: rule that cannot be represented, kept
                                 verbatim. In that case mode/conditions/actions
                                 are ignored (the arrays stay allocated but

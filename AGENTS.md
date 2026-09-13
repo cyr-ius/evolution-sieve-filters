@@ -267,8 +267,13 @@ represented (hand-written scripts, Nextcloud Mail / Roundcube blocks,
 `vacation`…) are now **kept verbatim** as "opaque" rules
 (`SieveRule.opaque` / `.raw`): the visual editor shows them locked
 (padlock, read-only), only the plain text tab can still edit them.
-Remaining: a real RFC 5228 parser to make them editable, `variables`,
-rule reordering and enabling/disabling · network cancellation on the UI
+Per-rule enable/disable is supported (`SieveRule.enabled`): a disabled
+rule is serialized as `if false # <mode>(<conditions>)` — the same
+convention Roundcube's managesieve plugin uses — so the original test
+survives re-enabling; a trailing comment that doesn't parse as a
+recognizable test falls back to opaque rather than being silently
+dropped. Remaining: a real RFC 5228 parser to make opaque rules
+editable, `variables`, rule reordering · network cancellation on the UI
 side.
 
 `sieve-model` / `sieve-rule-editor` are independent of Evolution — keep

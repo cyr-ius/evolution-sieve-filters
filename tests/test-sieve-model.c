@@ -520,12 +520,14 @@ test_single_value_list_stays_editable (void)
   g_assert_cmpstr (sieve_condition_get_value (c), ==, "mplayer-users.mplayerhq.hu");
 }
 
-/* github issue #1: "if false # ..." must NOT be re-serialized as
- * "if true" — the model has no way to represent a standalone "false"
- * test (an empty condition list always means "true"), so it must fall
- * back to an opaque rule instead of silently inverting the logic. */
+/* github issue #1: "if false # <test>" (the exact convention Roundcube's
+ * managesieve plugin uses to disable a rule without deleting it) must
+ * NOT be re-serialized as "if true", inverting the logic. It's now a
+ * fully editable, disabled rule: `enabled` is FALSE, and the original
+ * test is recovered from the trailing comment so it survives
+ * re-enabling and round-trips exactly. */
 static void
-test_if_false_kept_verbatim (void)
+test_disabled_rule_recovers_condition (void)
 {
   const gchar *script =
     "# rule:[Fail2ban]\n"
@@ -535,17 +537,96 @@ test_if_false_kept_verbatim (void)
     "}\n";
   g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
   SieveRule *r;
+  SieveCondition *c;
   g_autofree gchar *out = NULL;
+  g_autofree gchar *out2 = NULL;
 
   g_assert_nonnull (set);
   g_assert_cmpuint (set->rules->len, ==, 1);
   r = g_ptr_array_index (set->rules, 0);
-  g_assert_true (r->opaque);
-  g_assert_nonnull (strstr (r->raw, "if false"));
-  g_assert_null (strstr (r->raw, "if true"));
+  g_assert_false (r->opaque);
+  g_assert_false (r->enabled);
+  g_assert_cmpuint (r->conditions->len, ==, 1);
+
+  c = g_ptr_array_index (r->conditions, 0);
+  g_assert_cmpint (c->field, ==, SIEVE_FIELD_SUBJECT);
+  g_assert_cmpint (c->match, ==, SIEVE_MATCH_MATCHES);
+  g_assert_cmpstr (sieve_condition_get_value (c), ==, "[Fail2ban] *");
 
   out = sieve_rule_set_to_script (set);
-  g_assert_nonnull (strstr (out, "if false"));
+  g_assert_null (strstr (out, "if true"));
+  g_assert_nonnull (strstr (out,
+    "if false # allof (header :matches \"subject\" \"[Fail2ban] *\")"));
+
+  {
+    g_autoptr (SieveRuleSet) back = sieve_rule_set_parse (out, NULL);
+    out2 = sieve_rule_set_to_script (back);
+  }
+  g_assert_cmpstr (out, ==, out2);
+
+  /* Re-enabling turns it back into a normal "if allof (...)" test. */
+  r->enabled = TRUE;
+  {
+    g_autofree gchar *enabled_out = sieve_rule_set_to_script (set);
+    g_assert_nonnull (strstr (enabled_out,
+      "if allof (header :matches \"subject\" \"[Fail2ban] *\")"));
+  }
+}
+
+/* A disabled rule with no trailing comment (no original test to
+ * recover — e.g. one newly created, then disabled, in this editor)
+ * stays disabled with no conditions, and round-trips stably. */
+static void
+test_disabled_rule_without_comment (void)
+{
+  const gchar *script =
+    "# rule:[Off]\n"
+    "if false\n"
+    "{\n"
+    "\tstop;\n"
+    "}\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+  SieveRule *r;
+  g_autofree gchar *out = NULL;
+  g_autofree gchar *out2 = NULL;
+
+  g_assert_nonnull (set);
+  r = g_ptr_array_index (set->rules, 0);
+  g_assert_false (r->opaque);
+  g_assert_false (r->enabled);
+  g_assert_cmpuint (r->conditions->len, ==, 0);
+
+  out = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (out, "if false\n"));
+
+  {
+    g_autoptr (SieveRuleSet) back = sieve_rule_set_parse (out, NULL);
+    out2 = sieve_rule_set_to_script (back);
+  }
+  g_assert_cmpstr (out, ==, out2);
+}
+
+/* A disabled rule whose trailing comment is NOT a recognizable test
+ * (e.g. it uses "not", which the visual editor doesn't support): rather
+ * than silently discard that comment on the first save — which would
+ * permanently lose the original, disabled test — the whole rule falls
+ * back to opaque, verbatim. */
+static void
+test_disabled_rule_unparseable_comment_becomes_opaque (void)
+{
+  const gchar *script =
+    "# rule:[Weird]\n"
+    "if false # not header :contains \"subject\" \"x\"\n"
+    "{\n"
+    "\tstop;\n"
+    "}\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+  SieveRule *r;
+
+  g_assert_nonnull (set);
+  r = g_ptr_array_index (set->rules, 0);
+  g_assert_true (r->opaque);
+  g_assert_nonnull (strstr (r->raw, "if false # not header :contains \"subject\" \"x\""));
 }
 
 /* A truly broken script (unclosed brace): still rejected. */
@@ -583,6 +664,9 @@ main (int argc, char **argv)
   g_test_add_func ("/sieve-model/multi-value-list-stays-editable", test_multi_value_list_stays_editable);
   g_test_add_func ("/sieve-model/list-id-example-stays-editable", test_list_id_example_stays_editable);
   g_test_add_func ("/sieve-model/single-value-list-stays-editable", test_single_value_list_stays_editable);
-  g_test_add_func ("/sieve-model/if-false-kept-verbatim", test_if_false_kept_verbatim);
+  g_test_add_func ("/sieve-model/disabled-rule-recovers-condition", test_disabled_rule_recovers_condition);
+  g_test_add_func ("/sieve-model/disabled-rule-without-comment", test_disabled_rule_without_comment);
+  g_test_add_func ("/sieve-model/disabled-rule-unparseable-comment-becomes-opaque",
+                   test_disabled_rule_unparseable_comment_becomes_opaque);
   return g_test_run ();
 }

@@ -67,6 +67,7 @@ sieve_rule_new (const gchar *name)
   SieveRule *r = g_new0 (SieveRule, 1);
   r->name = g_strdup (name != NULL ? name : "");
   r->mode = SIEVE_MATCH_MODE_ALL;
+  r->enabled = TRUE;
   r->conditions = g_ptr_array_new_with_free_func ((GDestroyNotify) sieve_condition_free);
   r->actions = g_ptr_array_new_with_free_func ((GDestroyNotify) sieve_action_free);
   return r;
@@ -313,7 +314,23 @@ sieve_rule_set_to_script (const SieveRuleSet *set)
     g_string_append_printf (out, "# rule:[%s]\n", name);
     g_free (name);
 
-    if (r->conditions->len == 0) {
+    if (!r->enabled) {
+      /* Disabled: the test is kept as a trailing comment (same
+       * convention as Roundcube's managesieve plugin) so re-enabling
+       * the rule doesn't lose it. */
+      g_string_append (out, "if false");
+      if (r->conditions->len > 0) {
+        g_string_append_printf (out, " # %s (",
+                                r->mode == SIEVE_MATCH_MODE_ANY ? "anyof" : "allof");
+        for (guint j = 0; j < r->conditions->len; j++) {
+          if (j > 0)
+            g_string_append (out, ", ");
+          append_condition (out, g_ptr_array_index (r->conditions, j));
+        }
+        g_string_append_c (out, ')');
+      }
+      g_string_append (out, "\n{\n");
+    } else if (r->conditions->len == 0) {
       g_string_append (out, "if true\n{\n");
     } else {
       g_string_append_printf (out, "if %s (",
@@ -850,16 +867,13 @@ out:
   return ok;
 }
 
+/* Parses "allof (test, ...)" / "anyof (test, ...)" / "true" / a single
+ * unwrapped test, setting rule->mode and adding to rule->conditions.
+ * Factored out of parse_if() so it can also be applied to the trailing
+ * comment of a disabled rule ("if false # <this>") — see parse_if(). */
 static gboolean
-parse_if (Lex *lx, SieveRule *rule, GError **error)
+parse_test_expression (Lex *lx, SieveRule *rule, GError **error)
 {
-  if (lx->kind != TK_IDENT || g_ascii_strcasecmp (lx->val, "if") != 0) {
-    unsupported (error, "expected \"if\" after the rule marker");
-    return FALSE;
-  }
-  if (!lex_advance (lx, error))
-    return FALSE;
-
   if (lx->kind == TK_IDENT &&
       (g_ascii_strcasecmp (lx->val, "allof") == 0 ||
        g_ascii_strcasecmp (lx->val, "anyof") == 0)) {
@@ -885,15 +899,79 @@ parse_if (Lex *lx, SieveRule *rule, GError **error)
       unsupported (error, "expected \")\" to close the test list");
       return FALSE;
     }
-    if (!lex_advance (lx, error))
-      return FALSE;
-  } else if (lx->kind == TK_IDENT && g_ascii_strcasecmp (lx->val, "true") == 0) {
+    return lex_advance (lx, error);
+  }
+
+  if (lx->kind == TK_IDENT && g_ascii_strcasecmp (lx->val, "true") == 0) {
     rule->mode = SIEVE_MATCH_MODE_ALL;
-    if (!lex_advance (lx, error))
+    return lex_advance (lx, error);
+  }
+
+  rule->mode = SIEVE_MATCH_MODE_ALL;
+  return parse_test (lx, rule, error);
+}
+
+/* If, starting at `p`, only horizontal whitespace precedes a "#" before
+ * the next newline (or end of string), returns a newly-allocated,
+ * stripped copy of the comment's text; otherwise NULL. Used to recover
+ * the original test of a disabled rule ("if false # <test>", see
+ * parse_if()) — the same convention Roundcube's managesieve plugin uses
+ * to disable a rule without deleting it. */
+static gchar *
+extract_same_line_comment (const gchar *p)
+{
+  const gchar *q = p;
+  const gchar *start, *end;
+
+  while (*q == ' ' || *q == '\t')
+    q++;
+  if (*q != '#')
+    return NULL;
+  start = q + 1;
+  end = start;
+  while (*end != '\0' && *end != '\n')
+    end++;
+  return g_strstrip (g_strndup (start, end - start));
+}
+
+static gboolean
+parse_if (Lex *lx, SieveRule *rule, GError **error)
+{
+  if (lx->kind != TK_IDENT || g_ascii_strcasecmp (lx->val, "if") != 0) {
+    unsupported (error, "expected \"if\" after the rule marker");
+    return FALSE;
+  }
+  if (!lex_advance (lx, error))
+    return FALSE;
+
+  if (lx->kind == TK_IDENT && g_ascii_strcasecmp (lx->val, "false") == 0) {
+    g_autofree gchar *comment = extract_same_line_comment (lx->cur);
+
+    rule->enabled = FALSE;
+    rule->mode = SIEVE_MATCH_MODE_ALL;
+    if (!lex_advance (lx, error)) /* also skips the trailing comment, if any */
       return FALSE;
+
+    if (comment != NULL) {
+      Lex inner = { 0 };
+      gboolean inner_ok;
+
+      inner.cur = comment;
+      inner_ok = lex_advance (&inner, NULL) &&
+                 parse_test_expression (&inner, rule, NULL) &&
+                 inner.kind == TK_EOF;
+      lex_clear (&inner);
+      if (!inner_ok) {
+        /* Not a recognizable test: don't silently drop it (it would be
+         * lost for good on the next save). Fall back to opaque instead,
+         * keeping the exact original text. */
+        unsupported (error, "disabled rule's trailing comment is not a recognizable test");
+        return FALSE;
+      }
+    }
   } else {
-    rule->mode = SIEVE_MATCH_MODE_ALL;
-    if (!parse_test (lx, rule, error))
+    rule->enabled = TRUE;
+    if (!parse_test_expression (lx, rule, error))
       return FALSE;
   }
 

@@ -488,6 +488,32 @@ on_mode_changed (GtkComboBox *combo, SieveRuleEditor *self)
 }
 
 static void
+on_enabled_toggled (GtkToggleButton *toggle, SieveRuleEditor *self)
+{
+  SieveRule *rule = current_rule (self);
+  GtkListBoxRow *row;
+
+  if (self->updating || rule == NULL)
+    return;
+  rule->enabled = gtk_toggle_button_get_active (toggle);
+
+  /* Gray out (or restore) the rule's row in the list, same technique as
+   * on_name_changed(): opaque rules use a GtkBox as the row's child, not
+   * a bare GtkLabel, but this callback never fires for those (no
+   * "Enabled" checkbox is built for an opaque rule). */
+  row = gtk_list_box_get_row_at_index (GTK_LIST_BOX (self->rule_list), self->selected);
+  if (row != NULL) {
+    GtkWidget *label = gtk_bin_get_child (GTK_BIN (row));
+    if (GTK_IS_LABEL (label)) {
+      gtk_widget_set_sensitive (label, rule->enabled);
+      gtk_widget_set_tooltip_text (label, rule->enabled ? NULL :
+        _("Disabled — kept in the script but never applied."));
+    }
+  }
+  emit_changed (self);
+}
+
+static void
 on_add_condition (GtkButton *button, SieveRuleEditor *self)
 {
   SieveRule *rule = current_rule (self);
@@ -571,7 +597,7 @@ rebuild_detail (SieveRuleEditor *self)
     _("all of the criteria"), _("at least one criterion"), NULL
   };
   SieveRule *rule = current_rule (self);
-  GtkWidget *name_row, *name_entry, *mode_row, *mode_combo;
+  GtkWidget *name_row, *name_entry, *enabled_check, *mode_row, *mode_combo;
   GtkWidget *cond_frame, *cond_box, *add_cond_btn;
   GtkWidget *act_frame, *act_box, *add_act_btn;
 
@@ -628,8 +654,16 @@ rebuild_detail (SieveRuleEditor *self)
   gtk_widget_set_hexpand (name_entry, TRUE);
   gtk_entry_set_text (GTK_ENTRY (name_entry), rule->name != NULL ? rule->name : "");
   gtk_box_pack_start (GTK_BOX (name_row), name_entry, TRUE, TRUE, 0);
+  enabled_check = gtk_check_button_new_with_label (_("Enabled"));
+  gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (enabled_check), rule->enabled);
+  gtk_widget_set_tooltip_text (enabled_check,
+    _("When unchecked, the rule is kept in the script but never applied "
+      "(saved as \"if false # …\", read by other Sieve tools such as "
+      "Roundcube as a disabled rule)."));
+  gtk_box_pack_start (GTK_BOX (name_row), enabled_check, FALSE, FALSE, 0);
   gtk_box_pack_start (GTK_BOX (self->detail), name_row, FALSE, FALSE, 0);
   g_signal_connect (name_entry, "changed", G_CALLBACK (on_name_changed), self);
+  g_signal_connect (enabled_check, "toggled", G_CALLBACK (on_enabled_toggled), self);
 
   mode_row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_box_pack_start (GTK_BOX (mode_row), gtk_label_new (_("Match")), FALSE, FALSE, 0);
@@ -700,6 +734,11 @@ rebuild_rule_list (SieveRuleEditor *self)
       item = box;
     } else {
       item = label;
+      if (!r->enabled) {
+        gtk_widget_set_sensitive (label, FALSE);
+        gtk_widget_set_tooltip_text (label,
+          _("Disabled — kept in the script but never applied."));
+      }
     }
 
     gtk_widget_set_margin_top (item, 3);
