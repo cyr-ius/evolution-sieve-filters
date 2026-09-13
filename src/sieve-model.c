@@ -1268,3 +1268,55 @@ fail:
   g_propagate_error (error, local);
   return NULL;
 }
+
+/* Explicit, per-rule "unlock" of an opaque rule: reattempts the same
+ * "if allof/anyof(...) { actions }" grammar sieve_rule_set_parse() uses
+ * for a marked rule, but without requiring a leading "# rule:[name]"
+ * marker — unlike the tolerant whole-script parse, this is triggered
+ * on demand for one specific rule (visual editor's "Unlock" button),
+ * typically after the user has fixed up the rule's text in the "Raw
+ * text" tab, so relaxing the marker requirement here doesn't risk
+ * silently reinterpreting foreign blocks (Nextcloud Mail, Roundcube)
+ * elsewhere in the script.
+ *
+ * On success, returns a newly allocated, non-opaque SieveRule (the
+ * caller replaces `rule` with it) named after `rule->name` (itself
+ * already "# rule:[name]" or a best-effort fallback, see
+ * opaque_rule_name()). On failure, returns NULL + `error` and `rule`
+ * is left untouched: still opaque, exact original text preserved. */
+SieveRule *
+sieve_rule_unlock (const SieveRule *rule, GError **error)
+{
+  Lex lx = { 0 };
+  SieveRule *result = NULL;
+  GError *local = NULL;
+
+  g_return_val_if_fail (rule != NULL && rule->opaque, NULL);
+
+  lx.cur = rule->raw != NULL ? rule->raw : "";
+  if (!lex_advance (&lx, &local))
+    goto out;
+
+  if (lx.kind == TK_RULE && !lex_advance (&lx, &local))
+    goto out;
+
+  result = sieve_rule_new (rule->name);
+  if (!parse_if (&lx, result, &local)) {
+    sieve_rule_free (result);
+    result = NULL;
+    goto out;
+  }
+  if (lx.kind != TK_EOF) {
+    sieve_rule_free (result);
+    result = NULL;
+    unsupported (&local, "more than a single \"if\" block");
+  }
+
+out:
+  lex_clear (&lx);
+  if (result == NULL)
+    g_propagate_error (error, local);
+  else
+    g_clear_error (&local);
+  return result;
+}

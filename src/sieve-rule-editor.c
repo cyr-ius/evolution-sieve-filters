@@ -562,6 +562,43 @@ on_add_rule (GtkButton *button, SieveRuleEditor *self)
   emit_changed (self);
 }
 
+/* "Unlock" button of an opaque rule's detail panel: reattempts
+ * sieve_rule_unlock() on its raw text. On success, the opaque rule is
+ * replaced in place by the newly structured one and the visual editor
+ * takes over; on failure, the raw text is left untouched (still
+ * opaque) and the reason is shown inline so the user can go fix it up
+ * in the "Raw text" tab before trying again. */
+static void
+on_unlock_rule (GtkButton *button, SieveRuleEditor *self)
+{
+  GtkWidget *err_label = GTK_WIDGET (g_object_get_data (G_OBJECT (button), "error-label"));
+  SieveRule *rule = current_rule (self);
+  SieveRule *unlocked;
+  GError *error = NULL;
+
+  if (rule == NULL || !rule->opaque)
+    return;
+
+  unlocked = sieve_rule_unlock (rule, &error);
+  if (unlocked == NULL) {
+    gchar *msg = g_strdup_printf (
+      _("Still not representable in the visual editor: %s"), error->message);
+
+    gtk_label_set_text (GTK_LABEL (err_label), msg);
+    gtk_widget_set_no_show_all (err_label, FALSE);
+    gtk_widget_show (err_label);
+    g_free (msg);
+    g_clear_error (&error);
+    return;
+  }
+
+  sieve_rule_free (rule);
+  g_ptr_array_index (self->model->rules, self->selected) = unlocked;
+  rebuild_rule_list (self);
+  rebuild_detail (self);
+  emit_changed (self);
+}
+
 static void
 on_refresh_rules (GtkButton *button, SieveRuleEditor *self)
 {
@@ -619,15 +656,16 @@ rebuild_detail (SieveRuleEditor *self)
   }
 
   if (rule->opaque) {
-    GtkWidget *info, *scroll, *view;
+    GtkWidget *info, *scroll, *view, *btn_row, *unlock_btn, *err_label;
     GtkTextBuffer *buf;
 
     info = gtk_label_new (
       _("This rule comes from another tool (Nextcloud Mail, Roundcube, "
         "hand-written script…) or uses constructs the visual editor "
         "cannot represent.\n"
-        "It is shown here read-only and copied verbatim. "
-        "To edit or remove it, use the \"Raw text\" tab."));
+        "It is shown here read-only and copied verbatim. Edit it in the "
+        "\"Raw text\" tab, then click \"Unlock\" below to try switching "
+        "it to the visual editor; to remove it, also use \"Raw text\"."));
     gtk_label_set_line_wrap (GTK_LABEL (info), TRUE);
     gtk_label_set_xalign (GTK_LABEL (info), 0.0);
     gtk_box_pack_start (GTK_BOX (self->detail), info, FALSE, FALSE, 0);
@@ -642,6 +680,26 @@ rebuild_detail (SieveRuleEditor *self)
     gtk_text_buffer_set_text (buf, rule->raw != NULL ? rule->raw : "", -1);
     gtk_container_add (GTK_CONTAINER (scroll), view);
     gtk_box_pack_start (GTK_BOX (self->detail), scroll, TRUE, TRUE, 0);
+
+    btn_row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    unlock_btn = gtk_button_new_with_label (_("Unlock"));
+    gtk_widget_set_tooltip_text (unlock_btn,
+      _("Try to reinterpret this rule's text as conditions/actions the "
+        "visual editor understands. If it still doesn't fit, nothing "
+        "changes: the rule stays exactly as written."));
+    gtk_box_pack_start (GTK_BOX (btn_row), unlock_btn, FALSE, FALSE, 0);
+    gtk_widget_set_halign (btn_row, GTK_ALIGN_START);
+    gtk_box_pack_start (GTK_BOX (self->detail), btn_row, FALSE, FALSE, 0);
+
+    err_label = gtk_label_new (NULL);
+    gtk_label_set_line_wrap (GTK_LABEL (err_label), TRUE);
+    gtk_label_set_xalign (GTK_LABEL (err_label), 0.0);
+    gtk_widget_set_no_show_all (err_label, TRUE); /* hidden until "Unlock" fails */
+    gtk_widget_hide (err_label);
+    gtk_box_pack_start (GTK_BOX (self->detail), err_label, FALSE, FALSE, 0);
+
+    g_object_set_data (G_OBJECT (unlock_btn), "error-label", err_label);
+    g_signal_connect (unlock_btn, "clicked", G_CALLBACK (on_unlock_rule), self);
 
     gtk_widget_show_all (self->detail);
     self->updating = FALSE;

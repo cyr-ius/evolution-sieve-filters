@@ -37,6 +37,12 @@
  *   - Round-trip: sieve_rule_set_to_script() copies opaque rules back
  *     byte for byte; the script -> model -> script round trip is stable
  *     (see tests/test-sieve-model.c).
+ *   - sieve_rule_unlock() reattempts, on a single opaque rule, the same
+ *     grammar as sieve_rule_set_parse() but without requiring the
+ *     "# rule:[name]" marker — an explicit, per-rule action (the visual
+ *     editor's "Unlock" button) rather than part of the tolerant
+ *     whole-script parse, so it doesn't risk reinterpreting foreign
+ *     blocks elsewhere in the script.
  */
 
 #ifndef SIEVE_MODEL_H
@@ -170,6 +176,15 @@ gchar          *sieve_rule_set_to_script (const SieveRuleSet *set);
  * sieve_rule_set_to_script(). Returns NULL + `error` if the script falls
  * outside the visual editor's scope. */
 SieveRuleSet   *sieve_rule_set_parse (const gchar *script, GError **error);
+
+/* Explicit, per-rule "unlock" of an opaque rule (`rule->opaque` must be
+ * TRUE): reattempts the "if allof/anyof(...) { actions }" grammar
+ * without requiring a "# rule:[name]" marker, since this is triggered
+ * on demand for one specific rule rather than as part of the tolerant
+ * whole-script parse. On success, returns a newly allocated non-opaque
+ * SieveRule to replace `rule` with. On failure, returns NULL + `error`
+ * and `rule` is left untouched. */
+SieveRule      *sieve_rule_unlock (const SieveRule *rule, GError **error);
 
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (SieveRuleSet, sieve_rule_set_free)
 

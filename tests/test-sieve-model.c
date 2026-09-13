@@ -629,6 +629,94 @@ test_disabled_rule_unparseable_comment_becomes_opaque (void)
   g_assert_nonnull (strstr (r->raw, "if false # not header :contains \"subject\" \"x\""));
 }
 
+/* An unmarked, but otherwise fully representable, hand-written `if` is
+ * opaque as parsed (no "# rule:[name]" marker to trigger the visual
+ * editor) — but sieve_rule_unlock() can reinterpret it on demand
+ * (typically the "Unlock" button in the visual editor), without
+ * requiring the marker. */
+static void
+test_unlock_unmarked_representable_rule (void)
+{
+  const gchar *hand =
+    "if header :contains \"subject\" \"invoice\" {\n"
+    "  fileinto \"Bills\";\n"
+    "}\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (hand, NULL);
+  SieveRule *opaque;
+  g_autoptr (GError) error = NULL;
+  SieveRule *unlocked;
+
+  g_assert_nonnull (set);
+  g_assert_cmpuint (set->rules->len, ==, 1);
+  opaque = g_ptr_array_index (set->rules, 0);
+  g_assert_true (opaque->opaque);
+
+  unlocked = sieve_rule_unlock (opaque, &error);
+  g_assert_no_error (error);
+  g_assert_nonnull (unlocked);
+  g_assert_false (unlocked->opaque);
+  g_assert_cmpuint (unlocked->conditions->len, ==, 1);
+  g_assert_cmpstr (sieve_condition_get_value (g_ptr_array_index (unlocked->conditions, 0)),
+                    ==, "invoice");
+  g_assert_cmpuint (unlocked->actions->len, ==, 1);
+
+  /* Original left untouched: still opaque, exact text preserved. */
+  g_assert_true (opaque->opaque);
+  g_assert_nonnull (strstr (opaque->raw, "fileinto \"Bills\";"));
+
+  sieve_rule_free (unlocked);
+}
+
+/* A marked rule that failed to parse because of an unsupported action
+ * (`vacation`) falls back to opaque (see
+ * test_unsupported_action_becomes_opaque); once the user has fixed the
+ * action up in the "Raw text" tab, sieve_rule_unlock() succeeds and
+ * keeps the marker's name. */
+static void
+test_unlock_after_fixing_raw_text (void)
+{
+  SieveRule *opaque = sieve_rule_new_opaque (
+    "Vacation",
+    "# rule:[Vacation]\n"
+    "if true\n"
+    "{\n"
+    "\tstop;\n"
+    "}\n");
+  g_autoptr (GError) error = NULL;
+  SieveRule *unlocked = sieve_rule_unlock (opaque, &error);
+
+  g_assert_no_error (error);
+  g_assert_nonnull (unlocked);
+  g_assert_false (unlocked->opaque);
+  g_assert_cmpstr (unlocked->name, ==, "Vacation");
+  g_assert_cmpuint (unlocked->actions->len, ==, 1);
+  g_assert_cmpint (((SieveAction *) g_ptr_array_index (unlocked->actions, 0))->type,
+                    ==, SIEVE_ACTION_STOP);
+
+  sieve_rule_free (opaque);
+  sieve_rule_free (unlocked);
+}
+
+/* Still outside the visual editor's scope (`not`): sieve_rule_unlock()
+ * fails, and the caller keeps the original opaque rule as-is. */
+static void
+test_unlock_still_unsupported_fails (void)
+{
+  SieveRule *opaque = sieve_rule_new_opaque (
+    "(imported rule)",
+    "if not header :contains \"subject\" \"x\" {\n"
+    "  fileinto \"Other\";\n"
+    "}\n");
+  g_autoptr (GError) error = NULL;
+  SieveRule *unlocked = sieve_rule_unlock (opaque, &error);
+
+  g_assert_null (unlocked);
+  g_assert_error (error, SIEVE_MODEL_ERROR, SIEVE_MODEL_ERROR_UNSUPPORTED);
+  g_assert_true (opaque->opaque);
+
+  sieve_rule_free (opaque);
+}
+
 /* A truly broken script (unclosed brace): still rejected. */
 static void
 test_reject_unbalanced_braces (void)
@@ -657,6 +745,10 @@ main (int argc, char **argv)
   g_test_add_func ("/sieve-model/unsupported-action-becomes-opaque", test_unsupported_action_becomes_opaque);
   g_test_add_func ("/sieve-model/nextcloud-block-opaque", test_nextcloud_block_opaque);
   g_test_add_func ("/sieve-model/mixed-structured-and-opaque", test_mixed_structured_and_opaque);
+  g_test_add_func ("/sieve-model/unlock-unmarked-representable-rule",
+                   test_unlock_unmarked_representable_rule);
+  g_test_add_func ("/sieve-model/unlock-after-fixing-raw-text", test_unlock_after_fixing_raw_text);
+  g_test_add_func ("/sieve-model/unlock-still-unsupported-fails", test_unlock_still_unsupported_fails);
   g_test_add_func ("/sieve-model/reject-unbalanced-braces", test_reject_unbalanced_braces);
   g_test_add_func ("/sieve-model/regex-roundtrip", test_regex_roundtrip);
   g_test_add_func ("/sieve-model/regex-in-handwritten-rule-kept-verbatim",
