@@ -1,3 +1,14 @@
+evolution-sieve-filters (0.2.0-1) unstable; urgency=medium
+
+  * Add SASL GSSAPI (Kerberos) authentication support: automatic
+    mechanism negotiation now picks GSSAPI when the caller has a usable
+    Kerberos ticket (e.g. an Active Directory-joined workstation),
+    falling back to SCRAM/PLAIN/etc. otherwise; --mech GSSAPI forces it
+    explicitly. New optional build dependency on libkrb5, used only to
+    detect a usable ticket for automatic negotiation.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sun, 13 Sep 2026 11:24:22 +0000
+
 evolution-sieve-filters (0.1.0-1) unstable; urgency=medium
 
   * Initial packaging.
