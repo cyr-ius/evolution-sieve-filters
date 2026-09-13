@@ -16,8 +16,20 @@ if [ ! -x "$BIN" ]; then
   exit 1
 fi
 
+# SASL GSSAPI needs a disposable Kerberos KDC (kdc.sh) — only attempted if
+# the krb5 tools are installed; the keytab it creates must exist before
+# Dovecot starts (see kdc.sh's comments), so it comes first.
+HAVE_KDC=0
+if command -v kinit >/dev/null 2>&1 && command -v kdb5_util >/dev/null 2>&1; then
+  "$FIX/kdc.sh" --daemon
+  HAVE_KDC=1
+fi
+
 "$FIX/run.sh" --daemon
-cleanup() { "$FIX/run.sh" --stop >/dev/null 2>&1 || true; }
+cleanup() {
+  "$FIX/run.sh" --stop >/dev/null 2>&1 || true
+  [ "$HAVE_KDC" = 1 ] && "$FIX/kdc.sh" --stop >/dev/null 2>&1 || true
+}
 trap cleanup EXIT
 
 wait_port() {
@@ -100,6 +112,40 @@ echo "$out"
 echo "$out" | grep -q "doesn't advertise" \
   && echo "OK: expected refusal for an unadvertised mechanism" \
   || { echo "FAILED: --mech OAUTHBEARER should have been refused" >&2; exit 1; }
+
+# SASL GSSAPI: only if the disposable KDC came up (HAVE_KDC) AND Dovecot
+# actually loaded the "dovecot-gssapi" plugin (run.sh only puts "gssapi"
+# in auth_mechanisms when the plugin .so is present — see run.sh).
+if [ "$HAVE_KDC" = 1 ] && grep -q "^auth_mechanisms.*gssapi" "$FIX/run/dovecot.conf"; then
+  echo
+  echo "############################################################"
+  echo "# Battery: SASL GSSAPI"
+  echo "############################################################"
+
+  export KRB5_CONFIG="$FIX/run/krb5/krb5.conf"
+  export KRB5CCNAME="FILE:$FIX/run/krb5/ccache"
+  echo testpass | kinit testuser@SIEVE.TEST
+
+  gssapi_creds=(--host localhost --user testuser --port 4191)
+
+  echo; echo "===> SASL GSSAPI (forced)"
+  out="$("$BIN" "${gssapi_creds[@]}" --mech GSSAPI 2>&1)"
+  echo "$out"
+  echo "$out" | grep -q "mechanism: GSSAPI)" \
+    || { echo "FAILED: GSSAPI not confirmed by the client" >&2; exit 1; }
+
+  echo; echo "===> SASL automatic negotiation with a ticket (should now pick GSSAPI)"
+  out="$("$BIN" "${gssapi_creds[@]}" 2>&1)"
+  echo "$out"
+  echo "$out" | grep -q "mechanism: GSSAPI)" \
+    || { echo "FAILED: automatic negotiation didn't pick GSSAPI although a ticket was available" >&2; exit 1; }
+
+  kdestroy >/dev/null 2>&1 || true
+  unset KRB5_CONFIG KRB5CCNAME
+else
+  echo
+  echo "SKIP: SASL GSSAPI (krb5-kdc/krb5-user or the dovecot-gssapi plugin not installed)"
+fi
 
 echo
 echo "smoke OK — implicit TLS, STARTTLS and SASL negotiation validated"

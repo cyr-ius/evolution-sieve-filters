@@ -53,9 +53,17 @@ printf 'testuser:{PLAIN}testpass:%s:%s::%s/mail/testuser\n' \
   "$(id -u)" "$(id -g)" "$FIX" > "$RUN/users"
 
 # 3. Configuration, derived from the versioned template.
+# GSSAPI mechanism: only listed in auth_mechanisms if the "dovecot-gssapi"
+# plugin is actually installed — an unknown mechanism name there is FATAL
+# for the whole auth process (see dovecot.conf.in), so this must never be
+# unconditional.
+GSSAPI_MECH=""
+[ -e "/usr/lib/dovecot/modules/auth/libmech_gssapi.so" ] && GSSAPI_MECH=" gssapi"
+
 sed -e "s#@FIXTURE_DIR@#$FIX#g" \
     -e "s#@UID@#$(id -u)#g" \
     -e "s#@GID@#$(id -g)#g" \
+    -e "s#@GSSAPI_MECH@#$GSSAPI_MECH#g" \
     "$FIX/dovecot.conf.in" > "$CONF"
 
 case "${1:-}" in

@@ -67,5 +67,20 @@ RUN apt-get update \
       dovecot-managesieved \
       dovecot-sieve \
       openssl \
+      # dovecot-gssapi: the SASL GSSAPI mechanism itself is a SEPARATE
+      # plugin package, NOT part of dovecot-core (which only carries the
+      # mechanism's name in a config-name table, enough to make
+      # `doveconf` accept it silently but not to actually authenticate —
+      # see AGENTS.md's pitfalls table for the "Fatal: Unknown
+      # authentication mechanism" trap this causes without this package). ---
+      dovecot-gssapi \
+      # --- disposable Kerberos KDC for the SASL GSSAPI smoke test
+      # (tests/dovecot/kdc.sh): krb5-kdc ships krb5kdc/kdb5_util,
+      # krb5-admin-server ships kadmin.local (offline principal/keytab
+      # administration, no admin server process needed), krb5-user ships
+      # kinit/klist. ---
+      krb5-kdc \
+      krb5-admin-server \
+      krb5-user \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*

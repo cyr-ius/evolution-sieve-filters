@@ -14,6 +14,8 @@ this directory.
   is added to the container's CA store
   (`/usr/local/share/ca-certificates/`) so the client's TLS validation
   passes without an "insecure" flag (the client doesn't have one).
+- SASL GSSAPI is also exercised, against a disposable Kerberos KDC
+  (`kdc.sh`) — see "GSSAPI" below.
 
 ## Usage
 
@@ -52,8 +54,9 @@ build/tests/test-managesieve --host localhost --port 4190 --starttls \
 |--------------------|-------------------------------------------------------------|
 | `dovecot.conf.in`  | Configuration template (`@FIXTURE_DIR@`, `@UID@`… tokens)   |
 | `run.sh`           | Generates cert + conf + user database, starts Dovecot       |
-| `smoke.sh`         | LIST→CHECK→PUT→GET→SETACTIVE ""→DELETE, in implicit TLS AND STARTTLS |
-| `run/`             | Runtime state (cert, generated conf, logs, sockets) — ignored |
+| `kdc.sh`           | Disposable Kerberos KDC, for SASL GSSAPI (see below)         |
+| `smoke.sh`         | LIST→CHECK→PUT→GET→SETACTIVE ""→DELETE, in implicit TLS AND STARTTLS, then every SASL mechanism incl. GSSAPI |
+| `run/`             | Runtime state (cert, generated conf, logs, sockets, `krb5/` KDC state) — ignored |
 | `mail/`            | Users' maildirs + Sieve scripts — ignored          |
 
 ## Dovecot 2.4
@@ -74,6 +77,35 @@ the `plugin { sieve = path;active=path }` one-liner (the bare `plugin {}`
 section no longer exists in 2.4). Network-free tests (`meson test`) are
 unaffected either way.
 
+## GSSAPI
+
+`smoke.sh` also brings up a disposable MIT Kerberos KDC (`kdc.sh`,
+realm `SIEVE.TEST`, entirely under `run/krb5/` — no system `/etc/krb5.conf`
+touched) and tests SASL GSSAPI against it, both forced (`--mech GSSAPI`)
+and via automatic negotiation with a ticket present. This needs:
+
+- `krb5-kdc`, `krb5-admin-server`, `krb5-user` (the devcontainer installs
+  them) — `smoke.sh` skips the GSSAPI battery cleanly if `kinit`/
+  `kdb5_util` aren't found, everything else still runs.
+- The **`dovecot-gssapi`** package — GSSAPI is a separate plugin, **not**
+  part of `dovecot-core` despite `doveconf` silently accepting `gssapi` in
+  `auth_mechanisms` either way (see AGENTS.md's pitfalls table: without
+  the plugin, that silent acceptance turns into a fatal auth-process
+  crash at startup, taking every mechanism down with it). `run.sh`
+  therefore only lists `gssapi` in the generated conf when
+  `/usr/lib/dovecot/modules/auth/libmech_gssapi.so` actually exists.
+
+To try it by hand once `tests/dovecot/kdc.sh --daemon` and `run.sh
+--daemon` are both up:
+
+```sh
+export KRB5_CONFIG="$PWD/tests/dovecot/run/krb5/krb5.conf"
+export KRB5CCNAME="FILE:$PWD/tests/dovecot/run/krb5/ccache"
+echo testpass | kinit testuser@SIEVE.TEST
+build/tests/test-managesieve --host localhost --port 4191 \
+    --user testuser --mech GSSAPI     # no --password needed
+```
+
 ## Notes
 
 - `run.sh` starts the Dovecot master via `sudo` (the devcontainer allows
@@ -89,5 +121,6 @@ unaffected either way.
   devcontainer workspace's case). Harmless.
 - Dovecot refuses `DELETESCRIPT` on the **active** script → `smoke.sh`
   does a `SETACTIVE ""` (`test-managesieve --deactivate`) right before.
-- `dovecot-core`, `dovecot-managesieved`, `dovecot-sieve` and `openssl`
-  are installed by the devcontainer's `Dockerfile`.
+- `dovecot-core`, `dovecot-managesieved`, `dovecot-sieve`, `openssl`,
+  `dovecot-gssapi`, `krb5-kdc`, `krb5-admin-server` and `krb5-user` are
+  installed by the devcontainer's `Dockerfile`.

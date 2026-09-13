@@ -42,7 +42,21 @@ ssl_min_protocol      = TLSv1.2
 # LOGIN (password sent as-is), CRAM-MD5 and SCRAM-SHA-1/256 (challenge-response,
 # the secret never travels). The passdb below stores the password in
 # cleartext ({PLAIN}), which lets Dovecot derive all these mechanisms.
-auth_mechanisms        = plain login cram-md5 scram-sha-1 scram-sha-256
+# gssapi needs the "dovecot-gssapi" package (a separate plugin, NOT part
+# of dovecot-core despite what its own error-message strings might
+# suggest) and a keytab (see kdc.sh, which creates one against a
+# disposable local KDC). @GSSAPI_MECH@ is substituted by run.sh: "gssapi"
+# if the plugin .so is actually installed, empty otherwise — listing
+# "gssapi" here unconditionally would make auth_mechanisms reference an
+# unknown mechanism, which is FATAL for the whole auth process (crashing
+# PLAIN/LOGIN/etc too, not just GSSAPI) when the plugin is missing.
+# auth_username_format strips the "@REALM" suffix Dovecot's GSSAPI
+# mechanism appends to the authenticated principal, so it matches the
+# plain "testuser" this fixture's passdb/userdb expect.
+auth_mechanisms        = plain login cram-md5 scram-sha-1 scram-sha-256@GSSAPI_MECH@
+auth_gssapi_hostname   = localhost
+auth_krb5_keytab       = @FIXTURE_DIR@/run/krb5/dovecot.keytab
+auth_username_format   = %{user|username|lower}
 auth_verbose           = yes
 
 # Static user base (passwd-file): "testuser / testpass". The file already
