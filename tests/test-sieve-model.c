@@ -344,6 +344,159 @@ test_mixed_structured_and_opaque (void)
   g_assert_cmpstr (out, ==, out2);
 }
 
+/* github.com/cyr-ius/evolution-sieve-filters/issues/1: ":regex" support
+ * (RFE) and a round trip through the model (including the "regex"
+ * require). */
+static void
+test_regex_roundtrip (void)
+{
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_new ();
+  SieveRule *r = sieve_rule_new ("Login alert");
+  SieveCondition *c = sieve_condition_new ();
+  g_autofree gchar *script = NULL;
+  g_autofree gchar *script2 = NULL;
+  g_autoptr (SieveRuleSet) back = NULL;
+  SieveRule *br;
+  SieveCondition *bc;
+
+  c->field = SIEVE_FIELD_BODY;
+  c->match = SIEVE_MATCH_REGEX;
+  g_free (c->value);
+  c->value = g_strdup ("(Foo|Bar), Example");
+  g_ptr_array_add (r->conditions, c);
+  g_ptr_array_add (r->actions, sieve_action_new (SIEVE_ACTION_KEEP));
+  g_ptr_array_add (set->rules, r);
+
+  script = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (script, "\"regex\""));
+  g_assert_nonnull (strstr (script, "body :text :regex \"(Foo|Bar), Example\""));
+
+  back = sieve_rule_set_parse (script, NULL);
+  g_assert_nonnull (back);
+  br = g_ptr_array_index (back->rules, 0);
+  g_assert_false (br->opaque);
+  bc = g_ptr_array_index (br->conditions, 0);
+  g_assert_cmpint (bc->match, ==, SIEVE_MATCH_REGEX);
+  g_assert_cmpstr (bc->value, ==, "(Foo|Bar), Example");
+
+  script2 = sieve_rule_set_to_script (back);
+  g_assert_cmpstr (script, ==, script2);
+}
+
+/* github issue #1: a hand-written rule using ":regex" must NOT be
+ * silently downgraded to ":contains". Now that ":regex" is a supported
+ * match type (see test_regex_roundtrip), such a rule parses as a fully
+ * structured, editable rule with the regex condition preserved exactly
+ * — rather than either losing the ":regex" or falling back to opaque. */
+static void
+test_regex_in_handwritten_rule_kept_verbatim (void)
+{
+  const gchar *script =
+    "# rule:[Login alert]\n"
+    "if allof (header :contains \"subject\" \"Login attempt from new device\", "
+    "body :text :regex \"(Foo|Bar), Example\")\n"
+    "{\n"
+    "\tkeep;\n"
+    "}\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+  SieveRule *r;
+  SieveCondition *c1, *c2;
+  g_autofree gchar *out = NULL;
+
+  g_assert_nonnull (set);
+  g_assert_cmpuint (set->rules->len, ==, 1);
+  r = g_ptr_array_index (set->rules, 0);
+  g_assert_false (r->opaque);
+  g_assert_cmpuint (r->conditions->len, ==, 2);
+
+  c1 = g_ptr_array_index (r->conditions, 0);
+  g_assert_cmpint (c1->match, ==, SIEVE_MATCH_CONTAINS);
+
+  c2 = g_ptr_array_index (r->conditions, 1);
+  g_assert_cmpint (c2->match, ==, SIEVE_MATCH_REGEX);
+  g_assert_cmpstr (c2->value, ==, "(Foo|Bar), Example");
+
+  out = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (out, ":regex \"(Foo|Bar), Example\""));
+  g_assert_null (strstr (out, ":contains \"(Foo|Bar), Example\""));
+}
+
+/* github issue #1: a value list with more than one entry
+ * (`["a","b"]`) must not be truncated to its first element — the whole
+ * rule falls back to opaque, keeping every entry verbatim. */
+static void
+test_multi_value_list_kept_verbatim (void)
+{
+  const gchar *script =
+    "# rule:[Cooker]\n"
+    "if anyof (header :is \"sender\" [\"cooker-owner@linux-mandrake.com\",\"devel@mandrakesoft.com\"], "
+    "header :is \"x-loop\" [\"cooker@linux-mandrake.com\",\"changelog@linux-mandrake.com\",\"cooker@\"])\n"
+    "{\n"
+    "\tkeep;\n"
+    "}\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+  SieveRule *r;
+
+  g_assert_nonnull (set);
+  g_assert_cmpuint (set->rules->len, ==, 1);
+  r = g_ptr_array_index (set->rules, 0);
+  g_assert_true (r->opaque);
+  g_assert_nonnull (strstr (r->raw, "\"devel@mandrakesoft.com\""));
+  g_assert_nonnull (strstr (r->raw, "\"changelog@linux-mandrake.com\""));
+  g_assert_nonnull (strstr (r->raw, "\"cooker@\""));
+}
+
+/* A singleton list ("[\"a\"]") is semantically a bare string and stays
+ * fully editable. */
+static void
+test_single_value_list_stays_editable (void)
+{
+  const gchar *script =
+    "# rule:[List]\n"
+    "if header :contains \"list-id\" [\"mplayer-users.mplayerhq.hu\"]\n"
+    "{\n"
+    "\tkeep;\n"
+    "}\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+  SieveRule *r;
+  SieveCondition *c;
+
+  g_assert_nonnull (set);
+  g_assert_cmpuint (set->rules->len, ==, 1);
+  r = g_ptr_array_index (set->rules, 0);
+  g_assert_false (r->opaque);
+  c = g_ptr_array_index (r->conditions, 0);
+  g_assert_cmpstr (c->value, ==, "mplayer-users.mplayerhq.hu");
+}
+
+/* github issue #1: "if false # ..." must NOT be re-serialized as
+ * "if true" — the model has no way to represent a standalone "false"
+ * test (an empty condition list always means "true"), so it must fall
+ * back to an opaque rule instead of silently inverting the logic. */
+static void
+test_if_false_kept_verbatim (void)
+{
+  const gchar *script =
+    "# rule:[Fail2ban]\n"
+    "if false # allof (header :matches \"subject\" \"[Fail2ban] *\")\n"
+    "{\n"
+    "\tdiscard;\n"
+    "}\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+  SieveRule *r;
+  g_autofree gchar *out = NULL;
+
+  g_assert_nonnull (set);
+  g_assert_cmpuint (set->rules->len, ==, 1);
+  r = g_ptr_array_index (set->rules, 0);
+  g_assert_true (r->opaque);
+  g_assert_nonnull (strstr (r->raw, "if false"));
+  g_assert_null (strstr (r->raw, "if true"));
+
+  out = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (out, "if false"));
+}
+
 /* A truly broken script (unclosed brace): still rejected. */
 static void
 test_reject_unbalanced_braces (void)
@@ -373,5 +526,11 @@ main (int argc, char **argv)
   g_test_add_func ("/sieve-model/nextcloud-block-opaque", test_nextcloud_block_opaque);
   g_test_add_func ("/sieve-model/mixed-structured-and-opaque", test_mixed_structured_and_opaque);
   g_test_add_func ("/sieve-model/reject-unbalanced-braces", test_reject_unbalanced_braces);
+  g_test_add_func ("/sieve-model/regex-roundtrip", test_regex_roundtrip);
+  g_test_add_func ("/sieve-model/regex-in-handwritten-rule-kept-verbatim",
+                   test_regex_in_handwritten_rule_kept_verbatim);
+  g_test_add_func ("/sieve-model/multi-value-list-kept-verbatim", test_multi_value_list_kept_verbatim);
+  g_test_add_func ("/sieve-model/single-value-list-stays-editable", test_single_value_list_stays_editable);
+  g_test_add_func ("/sieve-model/if-false-kept-verbatim", test_if_false_kept_verbatim);
   return g_test_run ();
 }

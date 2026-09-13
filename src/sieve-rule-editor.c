@@ -166,7 +166,7 @@ on_cond_match_changed (GtkComboBox *combo, RowCtx *ctx)
   if (c->field == SIEVE_FIELD_SIZE)
     c->match = (idx == 1) ? SIEVE_MATCH_UNDER : SIEVE_MATCH_OVER;
   else
-    c->match = (SieveMatch) idx; /* 0..2 == CONTAINS / IS / MATCHES */
+    c->match = (SieveMatch) idx; /* 0..3 == CONTAINS / IS / MATCHES / REGEX */
 
   emit_changed (ctx->self);
 }
@@ -221,7 +221,7 @@ build_condition_row (SieveRuleEditor *self, SieveCondition *c)
     _("Header…"), _("Size"), _("Message body"), NULL
   };
   const gchar * const text_match_labels[] = {
-    _("contains"), _("is exactly"), _("matches pattern"), NULL
+    _("contains"), _("is exactly"), _("matches pattern"), _("matches regex"), NULL
   };
   const gchar * const size_match_labels[] = {
     _("is over"), _("is under"), NULL

@@ -117,6 +117,7 @@ match_tag (SieveMatch match)
   switch (match) {
     case SIEVE_MATCH_IS:      return ":is";
     case SIEVE_MATCH_MATCHES: return ":matches";
+    case SIEVE_MATCH_REGEX:   return ":regex";
     default:                  return ":contains";
   }
 }
@@ -218,6 +219,8 @@ collect_requires (const SieveRuleSet *set, GHashTable *req)
       const SieveCondition *c = g_ptr_array_index (r->conditions, j);
       if (c->field == SIEVE_FIELD_BODY)
         g_hash_table_add (req, g_strdup ("body"));
+      if (c->match == SIEVE_MATCH_REGEX)
+        g_hash_table_add (req, g_strdup ("regex"));
     }
     for (guint j = 0; j < r->actions->len; j++) {
       const SieveAction *a = g_ptr_array_index (r->actions, j);
@@ -466,14 +469,20 @@ unsupported (GError **error, const gchar *msg)
   g_set_error_literal (error, SIEVE_MODEL_ERROR, SIEVE_MODEL_ERROR_UNSUPPORTED, msg);
 }
 
-/* Reads a string, or a list "[\"a\", \"b\"]" of which only the first
- * element is kept (the rest is ignored: we don't know how to represent it). */
+/* Reads a string, or a singleton list "[\"a\"]" (semantically identical
+ * to a bare string). A list with more than one entry means "matches any
+ * of these values", which the model has no way to represent with a
+ * single `value` field: the caller must treat that as unsupported
+ * (falling back to an opaque rule) rather than silently keep only the
+ * first entry and drop the rest. */
 static gboolean
 expect_string (Lex *lx, gchar **out, GError **error)
 {
   *out = NULL;
 
   if (lx->kind == TK_LBRACKET) {
+    guint count = 0;
+
     if (!lex_advance (lx, error))
       return FALSE;
     if (lx->kind != TK_STRING) {
@@ -481,6 +490,7 @@ expect_string (Lex *lx, gchar **out, GError **error)
       return FALSE;
     }
     *out = g_strdup (lx->val);
+    count = 1;
     if (!lex_advance (lx, error))
       goto fail;
     while (lx->kind == TK_COMMA) {
@@ -490,11 +500,16 @@ expect_string (Lex *lx, gchar **out, GError **error)
         unsupported (error, "expected a string in the list");
         goto fail;
       }
+      count++;
       if (!lex_advance (lx, error))
         goto fail;
     }
     if (lx->kind != TK_RBRACKET) {
       unsupported (error, "expected \"]\" to close the list");
+      goto fail;
+    }
+    if (count > 1) {
+      unsupported (error, "a value list with more than one entry is not supported by the visual editor");
       goto fail;
     }
     return lex_advance (lx, error);
@@ -518,6 +533,7 @@ match_from_tag (const gchar *tag, SieveMatch *out)
   if (g_ascii_strcasecmp (tag, "contains") == 0) { *out = SIEVE_MATCH_CONTAINS; return TRUE; }
   if (g_ascii_strcasecmp (tag, "is") == 0)       { *out = SIEVE_MATCH_IS;       return TRUE; }
   if (g_ascii_strcasecmp (tag, "matches") == 0)  { *out = SIEVE_MATCH_MATCHES;  return TRUE; }
+  if (g_ascii_strcasecmp (tag, "regex") == 0)    { *out = SIEVE_MATCH_REGEX;    return TRUE; }
   return FALSE;
 }
 
@@ -540,7 +556,12 @@ set_field_from_header (SieveCondition *c, const gchar *hdr)
 }
 
 /* Parses a single test and adds the corresponding condition to `rule`.
- * "true" / "false" are accepted without adding anything. */
+ * "true" is accepted without adding anything, since an empty condition
+ * list is serialized back as "if true" (see sieve_rule_set_to_script()).
+ * "false" has no such round-trip: an empty condition list can only mean
+ * "true", so silently accepting "false" here would flip the rule's
+ * logic on save. It's therefore left unsupported (falls back to an
+ * opaque, verbatim-kept rule). */
 static gboolean
 parse_test (Lex *lx, SieveRule *rule, GError **error)
 {
@@ -554,8 +575,13 @@ parse_test (Lex *lx, SieveRule *rule, GError **error)
   }
   name = g_ascii_strdown (lx->val, -1);
 
-  if (g_strcmp0 (name, "true") == 0 || g_strcmp0 (name, "false") == 0) {
+  if (g_strcmp0 (name, "true") == 0) {
     ok = lex_advance (lx, error);
+    goto out;
+  }
+
+  if (g_strcmp0 (name, "false") == 0) {
+    unsupported (error, "test \"false\" is not supported by the visual editor");
     goto out;
   }
 
@@ -566,10 +592,15 @@ parse_test (Lex *lx, SieveRule *rule, GError **error)
     c = sieve_condition_new ();
     if (!lex_advance (lx, error))
       goto out;
-    while (lx->kind == TK_TAG) {          /* :contains / :is / :matches / :all ... */
+    while (lx->kind == TK_TAG) {          /* :contains / :is / :matches / :regex */
       SieveMatch m;
-      if (match_from_tag (lx->val, &m))
-        c->match = m;
+      if (!match_from_tag (lx->val, &m)) {
+        gchar *msg = g_strdup_printf ("tag \":%s\" not supported by the visual editor", lx->val);
+        unsupported (error, msg);
+        g_free (msg);
+        goto out;
+      }
+      c->match = m;
       if (!lex_advance (lx, error))
         goto out;
     }
@@ -620,10 +651,21 @@ parse_test (Lex *lx, SieveRule *rule, GError **error)
     c->field = SIEVE_FIELD_BODY;
     if (!lex_advance (lx, error))
       goto out;
-    while (lx->kind == TK_TAG) {          /* :text / :raw / :contains ... */
+    while (lx->kind == TK_TAG) {          /* :text (no-op, always re-emitted) or
+                                            * :contains / :is / :matches / :regex.
+                                            * ":raw" changes semantics and isn't
+                                            * representable: left as unsupported. */
       SieveMatch m;
-      if (match_from_tag (lx->val, &m))
+      if (g_ascii_strcasecmp (lx->val, "text") == 0) {
+        /* no-op */
+      } else if (match_from_tag (lx->val, &m)) {
         c->match = m;
+      } else {
+        gchar *msg = g_strdup_printf ("tag \":%s\" not supported by the visual editor", lx->val);
+        unsupported (error, msg);
+        g_free (msg);
+        goto out;
+      }
       if (!lex_advance (lx, error))
         goto out;
     }

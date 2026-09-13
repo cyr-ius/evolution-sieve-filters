@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: evolution-sieve-filters 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-12 10:00+0000\n"
+"POT-Creation-Date: 2026-09-13 11:42+0000\n"
 "PO-Revision-Date: 2026-09-12+00:00\n"
 "Last-Translator: \n"
 "Language-Team: French\n"
@@ -239,8 +239,7 @@ msgstr "Enregistrement en cours… (« Annuler » pour interrompre)"
 msgid ""
 "Visual editing unavailable: %s. The script remains editable as raw text."
 msgstr ""
-"Édition visuelle indisponible : %s. Le script reste modifiable en texte "
-"brut."
+"Édition visuelle indisponible : %s. Le script reste modifiable en texte brut."
 
 #: src/sieve-editor-dialog.c:1437
 msgid "Auto-reconnecting to the last account…"
@@ -281,8 +280,8 @@ msgid ""
 "connect) are configured per account in Edit → Accounts, \"Sieve Filters\" "
 "tab."
 msgstr ""
-"Les paramètres de connexion (serveur, port, chiffrement, identifiant, mot "
-"de passe, connexion automatique) se configurent par compte dans Édition → "
+"Les paramètres de connexion (serveur, port, chiffrement, identifiant, mot de "
+"passe, connexion automatique) se configurent par compte dans Édition → "
 "Comptes, onglet « Filtres Sieve »."
 
 #: src/sieve-editor-dialog.c:1628
@@ -292,9 +291,9 @@ msgid ""
 "visual editor's \"Reload rules\" to (re)connect."
 msgstr ""
 "État de la session ManageSieve. Il n'y a pas de bouton de connexion : la "
-"connexion s'ouvre automatiquement à l'ouverture (si le compte est "
-"configuré pour cela) ; sinon, utilisez « Recharger les règles » de "
-"l'éditeur visuel pour (re)connecter."
+"connexion s'ouvre automatiquement à l'ouverture (si le compte est configuré "
+"pour cela) ; sinon, utilisez « Recharger les règles » de l'éditeur visuel "
+"pour (re)connecter."
 
 #: src/sieve-editor-dialog.c:1654
 msgid "Visual editor"
@@ -329,16 +328,16 @@ msgid ""
 "editing is done in Edit -> Sieve Filters."
 msgstr ""
 "Paramètres de connexion au serveur de filtres Sieve de ce compte "
-"(ManageSieve). Si laissés vides, les paramètres du serveur de réception "
-"sont utilisés par défaut. L'édition des règles se fait dans Édition -> "
-"Filtres Sieve."
+"(ManageSieve). Si laissés vides, les paramètres du serveur de réception sont "
+"utilisés par défaut. L'édition des règles se fait dans Édition -> Filtres "
+"Sieve."
 
 #: src/sieve-config-page.c:269
 msgid ""
 "Keyring entry cleared — enter a password (it will be stored on \"Apply\")."
 msgstr ""
-"Entrée du trousseau effacée — saisissez un mot de passe (il sera "
-"enregistré lors de l'« Application »)."
+"Entrée du trousseau effacée — saisissez un mot de passe (il sera enregistré "
+"lors de l'« Application »)."
 
 #: src/sieve-config-page.c:417
 #, c-format
@@ -404,7 +403,8 @@ msgstr "Se connecter automatiquement à l'ouverture"
 
 #: src/sieve-config-page.c:718
 msgid "OAuth2: access token managed by Evolution, no password to enter."
-msgstr "OAuth2 : jeton d'accès géré par Evolution, aucun mot de passe à saisir."
+msgstr ""
+"OAuth2 : jeton d'accès géré par Evolution, aucun mot de passe à saisir."
 
 #. "Configuration" section: server + port, then "Connect
 #. * automatically" right below the server field.
@@ -465,8 +465,8 @@ msgid ""
 "Attempts a connection and authentication to the ManageSieve server with the "
 "settings above, without saving them."
 msgstr ""
-"Tente une connexion et une authentification au serveur ManageSieve avec "
-"les paramètres ci-dessus, sans les enregistrer."
+"Tente une connexion et une authentification au serveur ManageSieve avec les "
+"paramètres ci-dessus, sans les enregistrer."
 
 #: src/sieve-rule-editor.c:220
 msgid "Sender (From)"
@@ -507,6 +507,10 @@ msgstr "est exactement"
 #: src/sieve-rule-editor.c:224
 msgid "matches pattern"
 msgstr "correspond au motif"
+
+#: src/sieve-rule-editor.c:224
+msgid "matches regex"
+msgstr "correspond à l'expression régulière"
 
 #: src/sieve-rule-editor.c:227
 msgid "is over"
@@ -566,7 +570,8 @@ msgstr "au moins un critère"
 
 #: src/sieve-rule-editor.c:514
 msgid "Select a rule on the left, or click \"+\" to create one."
-msgstr "Sélectionnez une règle à gauche, ou cliquez sur « + » pour en créer une."
+msgstr ""
+"Sélectionnez une règle à gauche, ou cliquez sur « + » pour en créer une."
 
 #: src/sieve-rule-editor.c:528
 msgid ""
@@ -576,8 +581,8 @@ msgid ""
 "the \"Raw text\" tab."
 msgstr ""
 "Cette règle provient d'un autre outil (Nextcloud Mail, Roundcube, script "
-"écrit à la main…) ou utilise des constructions que l'éditeur visuel ne "
-"peut pas représenter.\n"
+"écrit à la main…) ou utilise des constructions que l'éditeur visuel ne peut "
+"pas représenter.\n"
 "Elle est affichée ici en lecture seule et copiée telle quelle. Pour la "
 "modifier ou la supprimer, utilisez l'onglet « Texte brut »."
 
