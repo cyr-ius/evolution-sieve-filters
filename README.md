@@ -104,9 +104,15 @@ sudo apt install ../evolution-sieve-filters_*.deb
 - Server capabilities announced before `STARTTLS` are **never** reused
   after the TLS handshake (protection against plaintext command
   injection).
-- Strong SASL by default (automatic negotiation of the best common
-  mechanism; SCRAM preferred). SCRAM-*-PLUS (TLS channel binding) and
-  GSSAPI are not supported yet.
+- **Supported SASL mechanisms**: PLAIN, LOGIN, CRAM-MD5, SCRAM-SHA-1,
+  SCRAM-SHA-256, OAUTHBEARER, XOAUTH2, GSSAPI — strong SASL by default
+  (automatic negotiation of the best common mechanism; GSSAPI preferred
+  when the caller has a usable Kerberos ticket, then SCRAM). GSSAPI lets
+  an Active Directory-joined workstation authenticate via its existing
+  Kerberos ticket, with no password at all. SCRAM-*-PLUS (TLS channel
+  binding), GS2-KRB5 and EXTERNAL are **not** supported: `sieve-sasl.c`
+  never offers them, regardless of what the underlying `libgsasl` build
+  is capable of (see AGENTS.md).
 
 ## Architecture
 

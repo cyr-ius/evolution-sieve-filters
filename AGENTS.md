@@ -52,11 +52,20 @@ meson test -C build                       # SASL unit tests (tests/test-sasl,
 tests/dovecot/smoke.sh                    # end-to-end: brings up Dovecot,
                                           # tests implicit TLS AND STARTTLS,
                                           # LIST/CHECK/PUT/GET/SETACTIVE/DELETE,
-                                          # then each SASL mechanism + auto
+                                          # then each SASL mechanism + auto,
+                                          # then SASL GSSAPI against a
+                                          # disposable KDC (skipped cleanly
+                                          # if krb5-kdc/krb5-user or the
+                                          # dovecot-gssapi plugin are absent)
 # or: meson compile -C build dovecot-smoke
 
 tests/dovecot/run.sh --daemon             # persistent server
 tests/dovecot/run.sh --stop
+
+tests/dovecot/kdc.sh --daemon             # disposable Kerberos KDC, for SASL
+                                          # GSSAPI (see smoke.sh) — must be
+                                          # started before run.sh --daemon
+tests/dovecot/kdc.sh --stop
 ```
 
 ### Keyring (`sieve-secret`)
@@ -72,10 +81,15 @@ never touched) and reruns the binary with
 failure). See `tests/secret/README.md`.
 
 - SASL: `--mech PLAIN|LOGIN|CRAM-MD5|SCRAM-SHA-1|SCRAM-SHA-256|OAUTHBEARER|
-  XOAUTH2` forces a mechanism; without `--mech`, auto negotiation
-  (prefers SCRAM). `--oauth2-token` (or `$SIEVE_OAUTH2_TOKEN`) for
-  OAUTHBEARER/XOAUTH2. The test Dovecot advertises
-  `plain login cram-md5 scram-sha-1 scram-sha-256`.
+  XOAUTH2|GSSAPI` forces a mechanism; without `--mech`, auto negotiation
+  (prefers GSSAPI when a Kerberos ticket is available, then SCRAM).
+  `--oauth2-token` (or `$SIEVE_OAUTH2_TOKEN`) for OAUTHBEARER/XOAUTH2. The
+  test Dovecot advertises `plain login cram-md5 scram-sha-1 scram-sha-256`,
+  plus `gssapi` once `tests/dovecot/kdc.sh --daemon` has run and the
+  `dovecot-gssapi` package is installed. GSSAPI needs no `--password`: the
+  identity comes from `kinit`ing against the disposable KDC first (see
+  `kdc.sh`'s header comment for the exact `KRB5_CONFIG`/`KRB5CCNAME` env
+  vars and realm).
 
 - **`localhost:4190` = STARTTLS**, **`localhost:4191` = implicit TLS**.
 - Credentials: **`testuser` / `testpass`**.
@@ -101,6 +115,11 @@ Against a real server: `test-managesieve --host … --user … [--starttls] [--p
 | keyring smoke: `Cannot create an item in a locked collection` | the `default` Secret Service alias points to a locked collection (no graphical prompter available headless). `smoke.sh` pre-designates the `login` keyring (created unlocked via `--unlock`) via `keyrings/default`. If it persists: `pkill -9 gnome-keyring-daemon` (leftover daemon from a previous run) then rerun. |
 | "Create Sieve Filter" context menu item: nothing happens, `WARNING sieve: view content (EMailShellContent) is not an EMailReader` | in Evolution 3.56, `EMailShellContent` **no longer implements** the `EMailReader` interface (it's the internal `EMailPanedView` widget, a descendant, that carries it). `module-sieve-filters.c` finds it with `sieve_find_mail_reader()` (recursive widget walk under the `EShellContent`) — no private `e-mail-shell-content.h` header needed. |
 | Merging the `.eui` fragment into `mail-message-popup` (message list context menu) | `e_ui_manager_add_actions_with_eui_data` stays reserved for the `main-menu` fragment (it also registers the actions); the context menu fragment is merged separately via `e_ui_parser_merge_data(e_ui_manager_get_parser(ui_manager), …)` + `e_ui_manager_changed()`, so a `GError` can be logged. Target: the `mail-conversion-actions` placeholder in the `mail-create-menu` submenu; falls back automatically to `mail-message-popup-common-actions` if refused. |
+| "Can we authenticate with SASL GSSAPI?" | **Yes**, since the KDC-backed fixture landed. `known_mechs[]` in `src/sieve-sasl.c` includes `GSSAPI`; libgsasl provides the mechanism itself (verified against a real Kerberos KDC — no extra wiring needed there). Automatic negotiation only picks it when `gssapi_ticket_available()` finds a usable ticket in the caller's default Kerberos credential cache (checked via libkrb5, optional dependency `mit-krb5` — without it, GSSAPI just never gets auto-picked); forcing `--mech GSSAPI` always works if the server offers it and a ticket exists, regardless of that dependency. Tested end-to-end by `tests/dovecot/kdc.sh` (disposable MIT krb5 KDC) + `smoke.sh`'s "SASL GSSAPI" battery. Only GS2-KRB5, SCRAM-*-PLUS and EXTERNAL remain unimplemented — see README.md "Security". |
+| `gss_acquire_cred()` via `libgssglue` fails with "unsupported mechanism", even with the krb5 OID explicit | `libgssglue` 0.9 (Debian) dispatches to MIT krb5 through a private symbol, `mechglue_internal_krb5_init`, that no longer exists in current `libgssapi-krb5` (verified: absent from `libgssapi_krb5.so.2` 1.21.3) — so libgssglue's own generic GSS entry points can't load the krb5 mechanism at all on this distro, despite `/etc/gssapi_mech.conf` correctly listing it and the `.so` opening fine. **This does not affect authentication itself**: libgsasl's GSSAPI mechanism works fine end-to-end (confirmed against a real KDC) through whatever internal path it uses. It only broke a first attempt at probing "is there a usable ticket" via `gss_acquire_cred` — `gssapi_ticket_available()` in `src/sieve-sasl.c` uses `krb5_cc_get_principal()` (libkrb5) instead, which is both simpler and correct for this specific question. |
+| Dovecot: `auth: Fatal: Unknown authentication mechanism 'GSSAPI'`, then the whole auth service throttle-loops (breaks PLAIN/LOGIN too) | Debian's `dovecot-core` does **not** actually build in GSSAPI — despite `gssapi` appearing as a string inside `/usr/lib/dovecot/auth` (config-name table, not an implementation) and `doveconf` silently accepting `auth_mechanisms = ... gssapi`. The real mechanism is the separate `dovecot-gssapi` package (`/usr/lib/dovecot/modules/auth/libmech_gssapi.so`). Listing an unknown mechanism name in `auth_mechanisms` is **fatal for the whole auth process**, not just for that mechanism — `tests/dovecot/run.sh` therefore only appends `gssapi` to `auth_mechanisms` (via the `@GSSAPI_MECH@` template token in `dovecot.conf.in`) when that `.so` is actually present, never unconditionally. |
+| Dovecot GSSAPI login succeeds but then `passwd-file: unknown user` / `Authenticated user not found from userdb` | Dovecot's GSSAPI mechanism authenticates as `user@REALM` (the Kerberos principal), but the fixture's passwd-file only knows plain `testuser`. Fix: `auth_username_format = %{user|username|lower}` in `dovecot.conf.in` (the `username` filter strips the `@domain` part) — applied unconditionally, harmless for the other mechanisms since their usernames never carry an `@`. |
+| Dovecot GSSAPI: `While acquiring service credentials: ... Permission denied` | the auth worker reading `auth_krb5_keytab` does not run as root even though the master process is started via `sudo` (see run.sh) — the keytab must be world-readable. `kdc.sh` `chmod 644`s the keytab it generates; it's a disposable test-only key for a throwaway realm, so this is fine here (would not be, for a real deployment's keytab). |
 
 ## Layout
 
@@ -241,7 +260,7 @@ Reading account settings (`CamelSettings`/`ESource` — the ManageSieve
 connection settings already have a dedicated page in the account editor,
 `sieve-config-page`; still missing: fine-grained `CamelSettings` reading,
 e.g. IMAP security → pre-check "implicit TLS") · SCRAM-*-PLUS (TLS
-channel binding) and GSSAPI · hardening the response parser · visual
+channel binding) and GS2-KRB5 · hardening the response parser · visual
 editor for conditions/actions: **basics in place**
 (`sieve-model` + `sieve-rule-editor`). Constructs that can't be
 represented (hand-written scripts, Nextcloud Mail / Roundcube blocks,
