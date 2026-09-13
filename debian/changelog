@@ -1,3 +1,26 @@
+evolution-sieve-filters (0.3.0-1) unstable; urgency=medium
+
+  * Fix several data-corruption bugs in the visual/raw editor: a
+    ":regex" match type was silently downgraded to ":contains", a value
+    list with more than one entry (e.g. ["a", "b"]) was truncated to
+    its first element, and a disabled "if false" test was
+    re-serialized as "if true", inverting the rule's logic. Any
+    construct the editor can't safely represent now falls back to a
+    read-only "opaque" copy instead of being silently mangled.
+  * Add ":regex" as a supported match type in the visual editor
+    (requires the Sieve "regex" extension on the server).
+  * Add support for multi-value conditions (a Sieve string list, e.g.
+    matching several senders at once): editable as a comma-separated
+    field, with "\," / "\\" escaping for a literal comma or backslash
+    within a value.
+  * Add per-rule enable/disable in the visual editor. A disabled rule
+    is saved as "if false # <test>", the same convention used by
+    Roundcube's managesieve plugin, so the original test survives
+    re-enabling and stays compatible with scripts managed by other
+    Sieve tools.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sun, 13 Sep 2026 12:27:01 +0000
+
 evolution-sieve-filters (0.2.0-1) unstable; urgency=medium
 
   * Add SASL GSSAPI (Kerberos) authentication support: automatic
