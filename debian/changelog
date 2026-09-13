@@ -1,3 +1,18 @@
+evolution-sieve-filters (0.4.0-1) unstable; urgency=medium
+
+  * Add an "Unlock" button to an opaque rule's read-only view in the
+    visual editor: reinterprets its raw text as conditions/actions
+    (same grammar as a normal rule, without requiring the leading
+    "# rule:[name]" marker), typically after fixing it up in the "Raw
+    text" tab. On failure the rule is left untouched and the reason is
+    shown inline.
+  * Add "move up" / "move down" buttons to the visual editor's rule
+    list, to reorder rules without going through the raw text tab.
+    Rule order is significant in Sieve (top-to-bottom evaluation,
+    "stop" short-circuits the rest); works for opaque rules too.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sun, 13 Sep 2026 12:54:46 +0000
+
 evolution-sieve-filters (0.3.0-1) unstable; urgency=medium
 
   * Fix several data-corruption bugs in the visual/raw editor: a
