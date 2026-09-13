@@ -36,6 +36,14 @@ RUN apt-get update \
       libgtk-3-dev \
       # --- strong SASL for the ManageSieve client (SCRAM, CRAM-MD5, LOGIN…) ---
       libgsasl-dev \
+      # SASL GSSAPI: libgsasl already provides the mechanism itself at
+      # runtime (transitively pulled in already), but src/sieve-sasl.c
+      # also links libkrb5 directly to probe for a usable Kerberos ticket
+      # (krb5_cc_get_principal) before letting automatic negotiation pick
+      # GSSAPI — install it explicitly rather than relying on the
+      # transitive pull. (Not libgssglue-dev: its GSSAPI/krb5 dispatch is
+      # broken against this modern MIT krb5, see sieve-sasl.c.) ---
+      libkrb5-dev \
       # --- keyring: storing the ManageSieve password (src/sieve-secret.c).
       # libsecret-1-dev is already pulled in by evolution-dev, but
       # src/sieve-secret.c depends on it directly — install it explicitly so

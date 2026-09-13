@@ -7,6 +7,7 @@
  *   - TCP connection + implicit TLS OR StartTLS (RFC 5804 §2.2, certificate
  *     validation delegated to GTlsClientConnection's default policy)
  *   - proper SASL via src/sieve-sasl.[ch]: automatic negotiation among
+ *     GSSAPI (Kerberos ticket cache, only when one is actually usable),
  *     PLAIN, LOGIN, CRAM-MD5, SCRAM-SHA-1, SCRAM-SHA-256 (libgsasl) and
  *     OAUTHBEARER / XOAUTH2 (token supplied by the caller); full
  *     challenge/response loop (RFC 5804 §2.1)
@@ -17,7 +18,7 @@
  *   - handling of synchronizing literals "{N+}" (currently we assume the
  *     server sends everything without waiting for an ack — true for most
  *     implementations but not guaranteed by the RFC)
- *   - SCRAM-*-PLUS (TLS channel binding), GSSAPI, EXTERNAL
+ *   - SCRAM-*-PLUS (TLS channel binding), GS2-KRB5, EXTERNAL
  *   - automatic reconnection / command queuing
  *
  * Cancellation and timeouts: the GCancellable passed to each operation is

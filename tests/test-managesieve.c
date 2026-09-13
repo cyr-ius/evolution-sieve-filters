@@ -151,8 +151,11 @@ main (int argc, char **argv)
   if (oauth2_token == NULL && g_getenv ("SIEVE_OAUTH2_TOKEN") != NULL)
     oauth2_token = g_strdup (g_getenv ("SIEVE_OAUTH2_TOKEN"));
 
-  /* No password prompt needed when authenticating with an OAuth2 token. */
-  if (password == NULL && oauth2_token == NULL)
+  /* No password prompt needed when authenticating with an OAuth2 token,
+   * nor when GSSAPI is forced (the ticket comes from the Kerberos
+   * credential cache, not a typed password). */
+  if (password == NULL && oauth2_token == NULL &&
+      !(mech != NULL && g_ascii_strcasecmp (mech, "GSSAPI") == 0))
     password = prompt_password ();
 
   implicit_tls = !starttls_flag;

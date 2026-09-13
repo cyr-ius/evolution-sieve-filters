@@ -38,6 +38,22 @@ gsasl_dep   = dependency('libgsasl', version: '>=1.10')
 # independently of Evolution, like the client and the model.
 secret_dep  = dependency('libsecret-1', version: '>=0.20')
 
+# libkrb5: only used to probe, at runtime, whether the process's Kerberos
+# credential cache holds a usable ticket (krb5_cc_get_principal), so
+# automatic SASL negotiation only picks GSSAPI when it stands a real
+# chance of working. Optional: the GSSAPI mechanism itself is already
+# provided by libgsasl on its own regardless of this dependency — without
+# it, GSSAPI just stays out of automatic negotiation but remains usable by
+# forcing it explicitly (--mech GSSAPI). (Not libgssglue: its GSSAPI/krb5
+# dispatch turned out to be broken against a modern MIT krb5 — see the
+# comment above gssapi_ticket_available() in sieve-sasl.c.)
+krb5_dep = dependency('mit-krb5', required: false)
+if not krb5_dep.found()
+  warning('mit-krb5.pc not found: SASL GSSAPI will still work if forced ' +
+          'explicitly (--mech GSSAPI), but will never be picked by ' +
+          'automatic negotiation (no way to probe for a Kerberos ticket).')
+endif
+
 # WARNING: these .pc files only exist if evolution-dev /
 # evolution-data-server-dev (Debian/Ubuntu names) are installed. On
 # Fedora: evolution-devel.

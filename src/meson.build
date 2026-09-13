@@ -1,12 +1,20 @@
 # Protocol library, independent of Evolution: testable on its own.
+sieve_client_deps = [glib_dep, gio_dep, gsasl_dep]
+sieve_client_c_args = []
+if krb5_dep.found()
+  sieve_client_deps += krb5_dep
+  sieve_client_c_args += '-DHAVE_KRB5=1'
+endif
+
 sieve_client_lib = static_library('sieve-managesieve-client',
   'sieve-managesieve-client.c',
   'sieve-sasl.c',
-  dependencies: [glib_dep, gio_dep, gsasl_dep])
+  c_args: sieve_client_c_args,
+  dependencies: sieve_client_deps)
 
 sieve_client_dep = declare_dependency(
   link_with: sieve_client_lib,
-  dependencies: [glib_dep, gio_dep, gsasl_dep],
+  dependencies: sieve_client_deps,
   include_directories: include_directories('.'))
 
 # Sieve rule model (criteria / actions) + (de)serialization to a Sieve
@@ -69,6 +77,7 @@ if evo_shell_dep.found() and evo_mail_dep.found()
     dependencies: [glib_dep, gio_dep, gtk_dep, evo_shell_dep, evo_mail_dep,
                    camel_dep, eds_dep, sieve_client_dep, sieve_model_dep,
                    sieve_secret_dep, sieve_config_dep],
+    name_prefix: '',
     install: true,
     install_dir: evo_shell_dep.get_variable(pkgconfig: 'moduledir'))
 endif

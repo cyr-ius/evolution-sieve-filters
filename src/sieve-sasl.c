@@ -5,6 +5,10 @@
 #include <string.h>
 #include <gsasl.h>
 
+#ifdef HAVE_KRB5
+#include <krb5.h>
+#endif
+
 GQuark
 sieve_sasl_error_quark (void)
 {
@@ -13,12 +17,17 @@ sieve_sasl_error_quark (void)
 
 /* Order = decreasing preference. Negotiation takes the first mechanism in
  * this list that is both advertised by the server and satisfied by the
- * supplied credentials. OAuth mechanisms come first: supplying a token is
- * an explicit choice by the caller. Among password-based mechanisms,
+ * supplied credentials. GSSAPI comes first: true SSO, no secret handled by
+ * this module at all — but it is only satisfiable during automatic
+ * negotiation when a usable Kerberos ticket is actually detected (see
+ * gssapi_ticket_available()), so it never gets picked blindly just because
+ * the server advertises it. OAuth mechanisms come next: supplying a token
+ * is an explicit choice by the caller. Among password-based mechanisms,
  * SCRAM (the secret never travels over the wire) comes before PLAIN,
  * which comes before CRAM-MD5 (MD5, unsalted, vulnerable offline) and
  * LOGIN (legacy). */
 static const gchar * const known_mechs[] = {
+  "GSSAPI",
   "OAUTHBEARER",
   "XOAUTH2",
   "SCRAM-SHA-256",
@@ -50,11 +59,63 @@ mech_is_oauth (const gchar *up)
   return strcmp (up, "OAUTHBEARER") == 0 || strcmp (up, "XOAUTH2") == 0;
 }
 
+static gboolean
+mech_is_gssapi (const gchar *up)
+{
+  return strcmp (up, "GSSAPI") == 0;
+}
+
+#ifdef HAVE_KRB5
+/* TRUE if the process's default Kerberos credential cache holds a
+ * principal, so that automatic negotiation only picks GSSAPI when it
+ * stands a real chance of working. Deliberately checked via libkrb5
+ * (krb5_cc_get_principal), not via a GSS-API call: gss_acquire_cred()
+ * through libgssglue (the generic GSS mechanism switch libgsasl itself
+ * links) turned out to fail with "unsupported mechanism" against a modern
+ * MIT krb5 on this project's reference distro — libgssglue 0.9 dispatches
+ * to it via a private symbol, mechglue_internal_krb5_init, that no longer
+ * exists in current libgssapi-krb5. libgsasl's own GSSAPI mechanism does
+ * not go through that path and works fine (verified manually end-to-end
+ * against a real KDC); only this probe would have been affected, so it
+ * uses libkrb5 directly instead. This does not check the ticket's
+ * expiry, only that a principal is present — an expired ticket still
+ * makes automatic negotiation try GSSAPI, which then fails normally. */
+static gboolean
+gssapi_ticket_available (void)
+{
+  krb5_context ctx;
+  krb5_ccache cc;
+  krb5_principal princ;
+  gboolean available = FALSE;
+
+  if (krb5_init_context (&ctx) != 0)
+    return FALSE;
+
+  if (krb5_cc_default (ctx, &cc) == 0) {
+    if (krb5_cc_get_principal (ctx, cc, &princ) == 0) {
+      available = TRUE;
+      krb5_free_principal (ctx, princ);
+    }
+    krb5_cc_close (ctx, cc);
+  }
+
+  krb5_free_context (ctx);
+  return available;
+}
+#else
+static gboolean
+gssapi_ticket_available (void)
+{
+  return FALSE;
+}
+#endif
+
 gboolean
 sieve_sasl_mechanism_is_client_first (const gchar *mechanism)
 {
   gchar *up = g_ascii_strup (mechanism, -1);
   gboolean client_first = mech_is_oauth (up) ||
+                          mech_is_gssapi (up) ||
                           strcmp (up, "PLAIN") == 0 ||
                           g_str_has_prefix (up, "SCRAM-");
   g_free (up);
@@ -62,7 +123,8 @@ sieve_sasl_mechanism_is_client_first (const gchar *mechanism)
 }
 
 /* A mechanism is satisfied if the caller supplies the identity and the
- * secret it consumes. authid is always required. */
+ * secret it consumes. authid is always required. GSSAPI needs no secret
+ * here: the identity comes from the caller's Kerberos ticket cache. */
 static gboolean
 mech_is_satisfiable (const gchar *up, const SieveSaslCredentials *creds)
 {
@@ -70,6 +132,8 @@ mech_is_satisfiable (const gchar *up, const SieveSaslCredentials *creds)
     return FALSE;
   if (mech_is_oauth (up))
     return creds->oauth2_token != NULL && creds->oauth2_token[0] != '\0';
+  if (mech_is_gssapi (up))
+    return TRUE;
   return creds->password != NULL;
 }
 
@@ -134,6 +198,8 @@ sieve_sasl_select_mechanism (const gchar                *server_mechs,
   }
 
   for (gsize i = 0; known_mechs[i] != NULL; i++) {
+    if (mech_is_gssapi (known_mechs[i]) && !gssapi_ticket_available ())
+      continue;
     if (strv_contains_ci (offered, known_mechs[i]) &&
         mech_is_satisfiable (known_mechs[i], creds)) {
       result = g_strdup (known_mechs[i]);
@@ -246,10 +312,12 @@ sieve_sasl_new (const gchar                *mechanism,
       return NULL;
     }
 
-    gsasl_property_set (self->session, GSASL_AUTHID, creds->authid);
+    if (creds->authid != NULL)
+      gsasl_property_set (self->session, GSASL_AUTHID, creds->authid);
     if (creds->authzid != NULL)
       gsasl_property_set (self->session, GSASL_AUTHZID, creds->authzid);
-    gsasl_property_set (self->session, GSASL_PASSWORD, creds->password);
+    if (creds->password != NULL)
+      gsasl_property_set (self->session, GSASL_PASSWORD, creds->password);
     gsasl_property_set (self->session, GSASL_SERVICE, "sieve");
     if (creds->hostname != NULL)
       gsasl_property_set (self->session, GSASL_HOSTNAME, creds->hostname);

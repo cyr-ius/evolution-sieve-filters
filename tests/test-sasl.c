@@ -69,11 +69,70 @@ test_select_force_unknown_mechanism (void)
 {
   SieveSaslCredentials creds = { .authid = "alice", .password = "pw" };
   GError *error = NULL;
-  gchar *m = sieve_sasl_select_mechanism ("PLAIN GSSAPI", "GSSAPI", &creds, &error);
+  gchar *m = sieve_sasl_select_mechanism ("PLAIN DIGEST-MD5", "DIGEST-MD5",
+                                          &creds, &error);
 
   g_assert_null (m);
   g_assert_error (error, SIEVE_SASL_ERROR, SIEVE_SASL_ERROR_NO_MECHANISM);
   g_clear_error (&error);
+}
+
+/* ---- GSSAPI ---------------------------------------------------------------- */
+
+static void
+test_select_force_gssapi_no_password_needed (void)
+{
+  /* No password: GSSAPI is satisfied by the identity alone (the actual
+   * ticket comes from the process's Kerberos credential cache). */
+  SieveSaslCredentials creds = { .authid = "alice" };
+  GError *error = NULL;
+  gchar *m = sieve_sasl_select_mechanism ("PLAIN GSSAPI", "GSSAPI", &creds, &error);
+
+  g_assert_no_error (error);
+  g_assert_cmpstr (m, ==, "GSSAPI");
+  g_free (m);
+}
+
+static void
+test_select_force_gssapi_not_offered (void)
+{
+  SieveSaslCredentials creds = { .authid = "alice" };
+  GError *error = NULL;
+  gchar *m = sieve_sasl_select_mechanism ("PLAIN LOGIN", "GSSAPI", &creds, &error);
+
+  g_assert_null (m);
+  g_assert_error (error, SIEVE_SASL_ERROR, SIEVE_SASL_ERROR_NO_MECHANISM);
+  g_clear_error (&error);
+}
+
+static void
+test_select_force_gssapi_missing_authid (void)
+{
+  SieveSaslCredentials creds = { 0 }; /* no identity at all */
+  GError *error = NULL;
+  gchar *m = sieve_sasl_select_mechanism ("GSSAPI", "GSSAPI", &creds, &error);
+
+  g_assert_null (m);
+  g_assert_error (error, SIEVE_SASL_ERROR, SIEVE_SASL_ERROR_MISSING_CRED);
+  g_clear_error (&error);
+}
+
+static void
+test_select_auto_ignores_gssapi_without_ticket (void)
+{
+  /* Automatic negotiation must not blindly pick GSSAPI just because the
+   * server advertises it: without a usable Kerberos ticket in the calling
+   * process (the normal case here, no test environment has one), it must
+   * fall through to the best password-based mechanism instead of failing
+   * outright. */
+  SieveSaslCredentials creds = { .authid = "alice", .password = "pw" };
+  GError *error = NULL;
+  gchar *m = sieve_sasl_select_mechanism ("GSSAPI SCRAM-SHA-256", NULL,
+                                          &creds, &error);
+
+  g_assert_no_error (error);
+  g_assert_cmpstr (m, ==, "SCRAM-SHA-256");
+  g_free (m);
 }
 
 static void
@@ -301,6 +360,10 @@ main (int argc, char **argv)
   g_test_add_func ("/sasl/select/force-not-offered", test_select_force_not_offered);
   g_test_add_func ("/sasl/select/force-missing-cred", test_select_force_missing_credential);
   g_test_add_func ("/sasl/select/no-common", test_select_no_common_mechanism);
+  g_test_add_func ("/sasl/select/force-gssapi-no-password", test_select_force_gssapi_no_password_needed);
+  g_test_add_func ("/sasl/select/force-gssapi-not-offered", test_select_force_gssapi_not_offered);
+  g_test_add_func ("/sasl/select/force-gssapi-missing-authid", test_select_force_gssapi_missing_authid);
+  g_test_add_func ("/sasl/select/auto-ignores-gssapi-without-ticket", test_select_auto_ignores_gssapi_without_ticket);
   g_test_add_func ("/sasl/introspect/client-first", test_client_first_classification);
   g_test_add_func ("/sasl/introspect/known-mechs", test_known_mechanisms_listed);
   g_test_add_func ("/sasl/step/plain", test_plain_initial_response);

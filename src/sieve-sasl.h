@@ -11,8 +11,15 @@
  * built here, from an access token the caller has already obtained
  * (acquiring and refreshing the token stays out of this module's scope).
  *
- * Out of scope for now: SCRAM-*-PLUS (TLS channel binding),
- * GSSAPI/GS2-KRB5, EXTERNAL.
+ * GSSAPI (Kerberos) is also supported, delegated to libgsasl like the
+ * classic mechanisms: no password needed (the identity comes from the
+ * caller's Kerberos ticket cache), only authid as an identity hint. It is
+ * only picked by automatic negotiation when a usable ticket is actually
+ * detected (see gssapi_ticket_available() in sieve-sasl.c); it can always
+ * be requested explicitly via a forced mechanism.
+ *
+ * Out of scope for now: SCRAM-*-PLUS (TLS channel binding), GS2-KRB5,
+ * EXTERNAL.
  */
 
 #ifndef SIEVE_SASL_H
@@ -34,7 +41,8 @@ typedef enum {
 typedef struct {
   const gchar *authid;        /* authentication identity (required) */
   const gchar *authzid;       /* authorization identity (often NULL) */
-  const gchar *password;      /* required by PLAIN, LOGIN, CRAM-MD5, SCRAM-* */
+  const gchar *password;      /* required by PLAIN, LOGIN, CRAM-MD5, SCRAM-*;
+                                * not used by GSSAPI (ticket cache) or OAuth */
   const gchar *oauth2_token;  /* bare access token, required by OAUTHBEARER / XOAUTH2 */
   const gchar *hostname;      /* OAUTHBEARER: host= field (NULL => omitted) */
   guint16      port;          /* OAUTHBEARER: port= field (0 => omitted) */
