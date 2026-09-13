@@ -47,10 +47,10 @@ filters.
 
 - Evolution ≥ 3.54 with its development headers (`evolution-dev` /
   `evolution-devel`, `evolution-data-server-dev`).
-- An IMAP server exposing **ManageSieve** (Dovecot + Pigeonhole is the
-  only one tested in practice; the client follows the RFC and should
-  therefore work against Cyrus timsieved and other implementations, but
-  this hasn't been verified).
+- An IMAP server exposing **ManageSieve**: tested in practice against
+  both **Dovecot + Pigeonhole** and **Cyrus IMAP / timsieved**; the
+  client follows the RFC and should therefore also work against other
+  implementations, though this hasn't been verified.
 - GLib/GTK+3, `libgsasl` (≥ 1.10) and `libsecret` (≥ 0.20).
 
 ## Installation
@@ -152,8 +152,15 @@ real server…): see [`AGENTS.md`](AGENTS.md).
   against a real Evolution; the rest is only checked at
   compile/link time in this development environment, which has no
   runnable Evolution.
-- Only one ManageSieve server (Dovecot + Pigeonhole) has been tested in
-  practice.
+- Tested in practice against Dovecot + Pigeonhole and Cyrus IMAP /
+  timsieved; other ManageSieve server implementations should work (the
+  client follows the RFC) but haven't been verified.
+
+## Support
+
+If this plugin is useful to you, you can support its development via
+[GitHub Sponsors](https://github.com/sponsors/cyr-ius). Entirely
+optional, but always appreciated!
 
 ## Contributing
 
