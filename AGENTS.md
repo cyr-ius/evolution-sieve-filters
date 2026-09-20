@@ -91,6 +91,13 @@ failure). See `tests/secret/README.md`.
   `kdc.sh`'s header comment for the exact `KRB5_CONFIG`/`KRB5CCNAME` env
   vars and realm).
 
+- Automatic negotiation falls back when GSSAPI fails (ticket present but
+  service ticket / keytab / DNS issue): `sieve_managesieve_client_authenticate_sync()`
+  retries once with the next mechanism, **only** for GSSAPI in auto mode
+  (never for password mechanisms — no multiplied failed logins — and never
+  for a forced `--mech`). Covered by the "GSSAPI failing" cases of `smoke.sh`
+  (broken `KRB5_CONFIG` + TGT-only ccache) and by `/sasl/select/exclude-*`.
+
 - **`localhost:4190` = STARTTLS**, **`localhost:4191` = implicit TLS**.
 - Credentials: **`testuser` / `testpass`**.
 - `ssl = required`: no plaintext auth.

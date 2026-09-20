@@ -802,15 +802,17 @@ fail_auth (GError **error, GError *sub, const gchar *mechanism)
   return FALSE;
 }
 
-gboolean
-sieve_managesieve_client_authenticate_sync (SieveManageSieveClient *self,
-                                             const gchar *mechanism,
-                                             const SieveManageSieveAuth *auth,
-                                             GCancellable *cancellable, GError **error)
+/* One authentication attempt with an already chosen mechanism. `chosen`
+ * stays owned by the caller. *out_retryable (optional) is set to TRUE when
+ * the attempt failed but the session is still usable for another
+ * AUTHENTICATE: the failure happened before anything was sent, or the
+ * exchange was ended cleanly (server NO / our own cancellation). */
+static gboolean
+authenticate_with (SieveManageSieveClient *self, const gchar *chosen,
+                   const SieveSaslCredentials *creds,
+                   GCancellable *cancellable, GError **error,
+                   gboolean *out_retryable)
 {
-  const gchar *sasl_cap;
-  SieveSaslCredentials creds;
-  gchar *chosen;
   SieveSasl *sasl;
   GError *sub = NULL;
   guchar *resp = NULL;
@@ -818,31 +820,21 @@ sieve_managesieve_client_authenticate_sync (SieveManageSieveClient *self,
   gboolean done = FALSE;
   gboolean ok;
 
-  g_return_val_if_fail (SIEVE_IS_MANAGESIEVE_CLIENT (self), FALSE);
-  g_return_val_if_fail (auth != NULL && auth->authid != NULL, FALSE);
+  if (out_retryable != NULL)
+    *out_retryable = FALSE;
 
-  sasl_cap = g_hash_table_lookup (self->capabilities, "SASL");
-
-  creds.authid       = auth->authid;
-  creds.authzid      = auth->authzid;
-  creds.password     = auth->password;
-  creds.oauth2_token = auth->oauth2_token;
-  creds.hostname     = self->host;
-  creds.port         = self->port;
-
-  chosen = sieve_sasl_select_mechanism (sasl_cap, mechanism, &creds, &sub);
-  if (chosen == NULL)
-    return fail_auth (error, sub, mechanism);
-
-  sasl = sieve_sasl_new (chosen, &creds, &sub);
+  sasl = sieve_sasl_new (chosen, creds, &sub);
   if (sasl == NULL) {
-    ok = fail_auth (error, sub, chosen);
-    g_free (chosen);
-    return ok;
+    if (out_retryable != NULL)
+      *out_retryable = TRUE;
+    return fail_auth (error, sub, chosen);
   }
 
   /* First step: initial response (client-first mechanisms) or nothing. */
   if (!sieve_sasl_step (sasl, NULL, 0, &resp, &resp_len, &done, &sub)) {
+    /* Nothing sent yet: the session is untouched. */
+    if (out_retryable != NULL)
+      *out_retryable = TRUE;
     ok = fail_auth (error, sub, chosen);
     goto out;
   }
@@ -907,9 +899,14 @@ sieve_managesieve_client_authenticate_sync (SieveManageSieveClient *self,
       g_free (chal);
       g_free (final);
       /* read_auth_reply already set the error (SERVER_NO / SERVER_BYE);
-       * relabel a NO as an authentication failure. */
-      if (type == AUTH_REPLY_NO && error != NULL && *error != NULL)
-        (*error)->code = SIEVE_MANAGESIEVE_ERROR_AUTH;
+       * relabel a NO as an authentication failure. A NO ends the
+       * exchange but keeps the session; a BYE closes it. */
+      if (type == AUTH_REPLY_NO) {
+        if (error != NULL && *error != NULL)
+          (*error)->code = SIEVE_MANAGESIEVE_ERROR_AUTH;
+        if (out_retryable != NULL)
+          *out_retryable = TRUE;
+      }
       ok = FALSE;
       goto out;
     }
@@ -923,6 +920,20 @@ sieve_managesieve_client_authenticate_sync (SieveManageSieveClient *self,
 
       if (!sieve_sasl_step (sasl, chal, chal_len, &out_bytes, &out_len, &done, &sub)) {
         g_free (chal);
+        /* Our side gave up mid-exchange: cancel it (RFC 5804 §2.1, a
+         * lone "*") and consume the server's NO, so that the session
+         * can be reused for another attempt. */
+        if (write_line (self, "\"*\"", cancellable, NULL)) {
+          AuthReplyType ctype;
+          guchar *c1 = NULL, *c2 = NULL;
+          gsize l1 = 0, l2 = 0;
+
+          if (read_auth_reply (self, &ctype, &c1, &l1, &c2, &l2, cancellable, NULL) &&
+              ctype == AUTH_REPLY_NO && out_retryable != NULL)
+            *out_retryable = TRUE;
+          g_free (c1);
+          g_free (c2);
+        }
         ok = fail_auth (error, sub, chosen);
         goto out;
       }
@@ -943,6 +954,73 @@ sieve_managesieve_client_authenticate_sync (SieveManageSieveClient *self,
 out:
   g_clear_pointer (&resp, g_free);
   sieve_sasl_free (sasl);
+  return ok;
+}
+
+gboolean
+sieve_managesieve_client_authenticate_sync (SieveManageSieveClient *self,
+                                             const gchar *mechanism,
+                                             const SieveManageSieveAuth *auth,
+                                             GCancellable *cancellable, GError **error)
+{
+  const gchar *sasl_cap;
+  SieveSaslCredentials creds;
+  gchar *chosen;
+  GError *sub = NULL;
+  gboolean ok, retryable = FALSE;
+
+  g_return_val_if_fail (SIEVE_IS_MANAGESIEVE_CLIENT (self), FALSE);
+  g_return_val_if_fail (auth != NULL && auth->authid != NULL, FALSE);
+
+  sasl_cap = g_hash_table_lookup (self->capabilities, "SASL");
+
+  creds.authid       = auth->authid;
+  creds.authzid      = auth->authzid;
+  creds.password     = auth->password;
+  creds.oauth2_token = auth->oauth2_token;
+  creds.hostname     = self->host;
+  creds.port         = self->port;
+
+  chosen = sieve_sasl_select_mechanism (sasl_cap, mechanism, &creds, &sub);
+  if (chosen == NULL)
+    return fail_auth (error, sub, mechanism);
+
+  ok = authenticate_with (self, chosen, &creds, cancellable, error, &retryable);
+
+  /* Automatic negotiation only: GSSAPI is picked as soon as a Kerberos
+   * ticket exists, but whether it works also depends on things the user
+   * doesn't necessarily control (service principal in the server's
+   * keytab, DNS/CNAME canonicalization…). Unlike a password mechanism,
+   * a GSSAPI failure says nothing about the password, so trying the next
+   * mechanism doesn't multiply failed password attempts. A forced
+   * mechanism is never replaced. */
+  if (!ok && mechanism == NULL && retryable && g_strcmp0 (chosen, "GSSAPI") == 0 &&
+      (error == NULL || *error != NULL) && !g_cancellable_is_cancelled (cancellable)) {
+    const gchar *excluded[] = { "GSSAPI", NULL };
+    gchar *fallback = sieve_sasl_select_mechanism_excluding (sasl_cap, NULL, &creds,
+                                                             excluded, NULL);
+
+    if (fallback != NULL) {
+      GError *retry_err = NULL;
+
+      g_warning ("sieve: SASL GSSAPI failed (%s); falling back to %s",
+                 error != NULL ? (*error)->message : "unknown error", fallback);
+
+      if (authenticate_with (self, fallback, &creds, cancellable, &retry_err, NULL)) {
+        g_clear_error (error);
+        ok = TRUE;
+      } else if (error != NULL) {
+        /* Report both: the GSSAPI failure is usually the real cause. */
+        g_prefix_error (&retry_err, "%s; then ", (*error)->message);
+        g_clear_error (error);
+        g_propagate_error (error, retry_err);
+      } else {
+        g_clear_error (&retry_err);
+      }
+      g_free (fallback);
+    }
+  }
+
   g_free (chosen);
   return ok;
 }

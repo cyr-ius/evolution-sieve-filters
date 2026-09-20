@@ -165,10 +165,11 @@ strv_contains_ci (gchar **strv, const gchar *up)
 }
 
 gchar *
-sieve_sasl_select_mechanism (const gchar                *server_mechs,
-                             const gchar                *force_mech,
-                             const SieveSaslCredentials *creds,
-                             GError                    **error)
+sieve_sasl_select_mechanism_excluding (const gchar                *server_mechs,
+                                       const gchar                *force_mech,
+                                       const SieveSaslCredentials *creds,
+                                       const gchar * const        *exclude,
+                                       GError                    **error)
 {
   gchar **offered = split_server_mechs (server_mechs);
   gchar *result = NULL;
@@ -198,6 +199,8 @@ sieve_sasl_select_mechanism (const gchar                *server_mechs,
   }
 
   for (gsize i = 0; known_mechs[i] != NULL; i++) {
+    if (exclude != NULL && g_strv_contains (exclude, known_mechs[i]))
+      continue;
     if (mech_is_gssapi (known_mechs[i]) && !gssapi_ticket_available ())
       continue;
     if (strv_contains_ci (offered, known_mechs[i]) &&
@@ -216,6 +219,16 @@ sieve_sasl_select_mechanism (const gchar                *server_mechs,
 
   g_strfreev (offered);
   return result;
+}
+
+gchar *
+sieve_sasl_select_mechanism (const gchar                *server_mechs,
+                             const gchar                *force_mech,
+                             const SieveSaslCredentials *creds,
+                             GError                    **error)
+{
+  return sieve_sasl_select_mechanism_excluding (server_mechs, force_mech, creds,
+                                                NULL, error);
 }
 
 /* --------------------------------------------------------------------------

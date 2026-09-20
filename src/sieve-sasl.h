@@ -67,6 +67,16 @@ gchar *sieve_sasl_select_mechanism (const gchar                *server_mechs,
                                     const SieveSaslCredentials *creds,
                                     GError                    **error);
 
+/* Same, for automatic negotiation with some mechanisms ruled out
+ * (exclude: NULL-terminated, names in UPPERCASE, or NULL). Used to pick a
+ * fallback after a mechanism failed. `exclude` is ignored when force_mech
+ * is set. */
+gchar *sieve_sasl_select_mechanism_excluding (const gchar                *server_mechs,
+                                              const gchar                *force_mech,
+                                              const SieveSaslCredentials *creds,
+                                              const gchar * const        *exclude,
+                                              GError                    **error);
+
 /* TRUE if the mechanism sends data with its first message, before any
  * server challenge (PLAIN, SCRAM-*, OAUTHBEARER, XOAUTH2); FALSE if the
  * server speaks first (LOGIN, CRAM-MD5). Introspection helper —

@@ -140,6 +140,41 @@ if [ "$HAVE_KDC" = 1 ] && grep -q "^auth_mechanisms.*gssapi" "$FIX/run/dovecot.c
   echo "$out" | grep -q "mechanism: GSSAPI)" \
     || { echo "FAILED: automatic negotiation didn't pick GSSAPI although a ticket was available" >&2; exit 1; }
 
+  # GSSAPI that fails on the client side although a ticket exists (here: the
+  # service ticket can't be obtained because the KDC is unreachable after the
+  # TGT was acquired — the same client-side failure as a service principal
+  # unknown to the KDC, e.g. sieve/<CNAME>). Automatic negotiation must fall
+  # back to another mechanism; a forced --mech GSSAPI must NOT.
+  BROKEN_KRB5="$FIX/run/krb5/krb5-broken.conf"
+  sed -E 's/^([[:space:]]*kdc[[:space:]]*=).*/\1 127.0.0.1:1/' \
+    "$KRB5_CONFIG" > "$BROKEN_KRB5"
+  grep -q "127.0.0.1:1" "$BROKEN_KRB5" \
+    || { echo "FAILED: couldn't derive the broken krb5.conf (no kdc = line?)" >&2; exit 1; }
+  # Fresh ccache holding only a TGT: the service tickets cached by the runs
+  # above would otherwise let GSSAPI succeed without asking the KDC.
+  BROKEN_CC="FILE:$FIX/run/krb5/ccache-broken"
+  echo testpass | KRB5CCNAME="$BROKEN_CC" kinit testuser@SIEVE.TEST
+  broken_creds=(--host localhost --user testuser --password testpass --port 4191)
+
+  echo; echo "===> SASL automatic negotiation, GSSAPI failing (should fall back)"
+  out="$(KRB5CCNAME="$BROKEN_CC" KRB5_CONFIG="$BROKEN_KRB5" "$BIN" "${broken_creds[@]}" 2>&1)"
+  echo "$out"
+  echo "$out" | grep -q "mechanism: GSSAPI)" \
+    && { echo "FAILED: GSSAPI can't have succeeded with a broken KDC" >&2; exit 1; }
+  echo "$out" | grep -q "falling back" \
+    || { echo "FAILED: no GSSAPI fallback was attempted" >&2; exit 1; }
+  echo "$out" | grep -q "mechanism: SCRAM-SHA-256)" \
+    || { echo "FAILED: fallback didn't authenticate with SCRAM-SHA-256" >&2; exit 1; }
+
+  echo; echo "===> SASL GSSAPI forced and failing (must NOT fall back)"
+  out="$(KRB5CCNAME="$BROKEN_CC" KRB5_CONFIG="$BROKEN_KRB5" "$BIN" "${broken_creds[@]}" --mech GSSAPI 2>&1 || true)"
+  echo "$out"
+  echo "$out" | grep -q "falling back" \
+    && { echo "FAILED: a forced mechanism must never be replaced" >&2; exit 1; }
+  echo "$out" | grep -q "SASL authentication failed (GSSAPI)" \
+    || { echo "FAILED: forced GSSAPI should have failed with a GSSAPI error" >&2; exit 1; }
+
+  KRB5CCNAME="$BROKEN_CC" kdestroy >/dev/null 2>&1 || true
   kdestroy >/dev/null 2>&1 || true
   unset KRB5_CONFIG KRB5CCNAME
 else

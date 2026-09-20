@@ -77,6 +77,34 @@ test_select_force_unknown_mechanism (void)
   g_clear_error (&error);
 }
 
+static void
+test_select_exclude_skips_mechanism (void)
+{
+  SieveSaslCredentials creds = { .authid = "alice", .password = "pw" };
+  const gchar *excluded[] = { "SCRAM-SHA-256", NULL };
+  GError *error = NULL;
+  gchar *m = sieve_sasl_select_mechanism_excluding (
+      "PLAIN SCRAM-SHA-1 SCRAM-SHA-256", NULL, &creds, excluded, &error);
+
+  g_assert_no_error (error);
+  g_assert_cmpstr (m, ==, "SCRAM-SHA-1");
+  g_free (m);
+}
+
+static void
+test_select_exclude_everything (void)
+{
+  SieveSaslCredentials creds = { .authid = "alice", .password = "pw" };
+  const gchar *excluded[] = { "PLAIN", NULL };
+  GError *error = NULL;
+  gchar *m = sieve_sasl_select_mechanism_excluding ("PLAIN", NULL, &creds,
+                                                    excluded, &error);
+
+  g_assert_null (m);
+  g_assert_error (error, SIEVE_SASL_ERROR, SIEVE_SASL_ERROR_NO_MECHANISM);
+  g_clear_error (&error);
+}
+
 /* ---- GSSAPI ---------------------------------------------------------------- */
 
 static void
@@ -364,6 +392,8 @@ main (int argc, char **argv)
   g_test_add_func ("/sasl/select/force-gssapi-not-offered", test_select_force_gssapi_not_offered);
   g_test_add_func ("/sasl/select/force-gssapi-missing-authid", test_select_force_gssapi_missing_authid);
   g_test_add_func ("/sasl/select/auto-ignores-gssapi-without-ticket", test_select_auto_ignores_gssapi_without_ticket);
+  g_test_add_func ("/sasl/select/exclude-skips", test_select_exclude_skips_mechanism);
+  g_test_add_func ("/sasl/select/exclude-everything", test_select_exclude_everything);
   g_test_add_func ("/sasl/introspect/client-first", test_client_first_classification);
   g_test_add_func ("/sasl/introspect/known-mechs", test_known_mechanisms_listed);
   g_test_add_func ("/sasl/step/plain", test_plain_initial_response);
