@@ -156,7 +156,17 @@ src/sieve-config-page.[ch]         "Sieve Filters" page of the account
                                    account's connection settings
                                    (host/port/user/TLS) + auto-connect,
                                    written to sieve-config; Authentication
-                                   section: password field HIDDEN by
+                                   section: "Type" list (forced SASL
+                                   mechanism, default Automatic, stored as
+                                   `auth-mechanism`) + "Check Supported
+                                   Types" button (probes each mechanism on
+                                   its own connection, strikes through the
+                                   failing ones; a failure only counts if
+                                   another password/OAuth mechanism
+                                   succeeded, and the run stops after 2
+                                   ambiguous failures, to avoid tripping
+                                   brute-force protection); password
+                                   field HIDDEN by
                                    default (password taken from the
                                    keyring); the "Forget password" button
                                    clears the keyring entry (detached

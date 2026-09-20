@@ -8,6 +8,7 @@
  *   [manual]           <- dialog's "manual entry" profile
  *   [account <UID>]     <- one profile per Evolution account
  *   host=...  port=...  user=...  implicit-tls=...  auto-connect=...  remember-password=...
+ *   auth-mechanism=...  (absent / "" => automatic negotiation)
  *
  * Tolerant: a missing or corrupt file = default values, never a
  * failure on the read side (the dialog must be able to open in all
@@ -137,6 +138,7 @@ sieve_config_free (SieveConfig *config)
   g_free (config->account_uid);
   g_free (config->host);
   g_free (config->user);
+  g_free (config->auth_mechanism);
   g_free (config);
 }
 
@@ -175,6 +177,7 @@ sieve_config_load_for_account (const gchar *account_uid)
 
   config->host = dup_string_key (kf, group, "host");
   config->user = dup_string_key (kf, group, "user");
+  config->auth_mechanism = dup_string_key (kf, group, "auth-mechanism");
 
   {
     gint port = g_key_file_get_integer (kf, group, "port", NULL);
@@ -219,6 +222,10 @@ sieve_config_save_for_account (const SieveConfig *config,
   g_key_file_set_boolean (kf, group, "auto-connect", config->auto_connect);
   g_key_file_set_boolean (kf, group, "remember-password",
                           config->remember_password);
+  if (config->auth_mechanism != NULL && *config->auth_mechanism != '\0')
+    g_key_file_set_string (kf, group, "auth-mechanism", config->auth_mechanism);
+  else
+    g_key_file_remove_key (kf, group, "auth-mechanism", NULL);
 
   return save_state_file (kf, error);
 }

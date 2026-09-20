@@ -84,6 +84,7 @@ test_account_round_trip_and_isolation (void)
     .implicit_tls = TRUE,
     .auto_connect = FALSE,
     .remember_password = TRUE,
+    .auth_mechanism = (gchar *) "SCRAM-SHA-256",
   };
   SieveConfig *read;
 
@@ -111,6 +112,20 @@ test_account_round_trip_and_isolation (void)
   g_assert_true (read->implicit_tls);
   g_assert_false (read->auto_connect);
   g_assert_true (read->remember_password);
+  g_assert_cmpstr (read->auth_mechanism, ==, "SCRAM-SHA-256");
+  sieve_config_free (read);
+
+  /* Automatic negotiation (no forced mechanism) stays NULL, and
+   * clearing a forced mechanism removes the key. */
+  read = sieve_config_load_for_account ("acc-1");
+  g_assert_null (read->auth_mechanism);
+  sieve_config_free (read);
+
+  a2.auth_mechanism = NULL;
+  g_assert_true (sieve_config_save_for_account (&a2, &error));
+  g_assert_no_error (error);
+  read = sieve_config_load_for_account ("acc-2");
+  g_assert_null (read->auth_mechanism);
   sieve_config_free (read);
 
   /* An account never written keeps the defaults. */

@@ -17,6 +17,7 @@
 #include "sieve-account.h"
 #include "sieve-config.h"
 #include "sieve-managesieve-client.h"
+#include "sieve-sasl.h"
 #include "sieve-secret.h"
 
 #define SIEVE_CONFIG_PAGE_SORT_ORDER  660   /* right after "Security" (600) */
@@ -51,6 +52,14 @@ enum {
   SIEVE_ENC_IMPLICIT = 1,   /* TLS on a dedicated port    (implicit_tls = TRUE)  */
 };
 
+/* Columns of the "Type" list model. */
+enum {
+  AUTH_COL_LABEL = 0,       /* G_TYPE_STRING: displayed text */
+  AUTH_COL_MECH,            /* G_TYPE_STRING: SASL name, NULL = automatic */
+  AUTH_COL_STRUCK,          /* G_TYPE_BOOLEAN: struck through = unsupported */
+  AUTH_N_COLS
+};
+
 struct _SieveConfigPage {
   GtkScrolledWindow parent_instance;
 
@@ -68,11 +77,18 @@ struct _SieveConfigPage {
                                     * keyring entry, reveals the field + label,
                                     * and hides itself */
   GtkWidget *forget_status;         /* status line below the field / button */
+  GtkWidget *auth_type_combo;       /* "Type:" — SASL mechanism (Automatic +
+                                    * sieve_sasl_known_mechanisms()); model
+                                    * columns: see AUTH_COL_* */
+  GtkWidget *check_types_button;    /* "Check Supported Types" */
   GtkWidget *auto_connect_check;    /* "Connect automatically" */
   GtkWidget *test_button;           /* "Connectivity" section: "Test" button */
   GtkWidget *test_status;           /* result line below the button */
-  GCancellable *test_cancellable;   /* cancels the running test (dispose) */
-  gboolean   test_in_flight;        /* a test is running on a worker thread */
+  GCancellable *test_cancellable;   /* cancels the running test / type check
+                                    * (dispose) */
+  gboolean   test_in_flight;        /* a test or type check is running on a
+                                    * worker thread (the two buttons are
+                                    * disabled together) */
   gboolean   account_is_oauth2;     /* token managed by Evolution: no password */
 };
 
@@ -121,6 +137,72 @@ sieve_config_page_init (SieveConfigPage *self)
   (void) self;
 }
 
+/* --- "Type" list (SASL mechanism) ------------------------------------ */
+
+/* Selects `mech` (NULL / unknown name => "Automatic", row 0). */
+static void
+auth_type_select (SieveConfigPage *self, const gchar *mech)
+{
+  GtkTreeModel *model = gtk_combo_box_get_model (GTK_COMBO_BOX (self->auth_type_combo));
+  GtkTreeIter iter;
+  gboolean valid;
+
+  for (valid = gtk_tree_model_get_iter_first (model, &iter); valid;
+       valid = gtk_tree_model_iter_next (model, &iter)) {
+    g_autofree gchar *row_mech = NULL;
+
+    gtk_tree_model_get (model, &iter, AUTH_COL_MECH, &row_mech, -1);
+    if (g_strcmp0 (row_mech, mech) == 0) {
+      gtk_combo_box_set_active_iter (GTK_COMBO_BOX (self->auth_type_combo), &iter);
+      return;
+    }
+  }
+  gtk_combo_box_set_active (GTK_COMBO_BOX (self->auth_type_combo), 0);
+}
+
+/* Selected mechanism (free with g_free), NULL for "Automatic". */
+static gchar *
+auth_type_dup_selected (SieveConfigPage *self)
+{
+  GtkTreeIter iter;
+  gchar *mech = NULL;
+
+  if (gtk_combo_box_get_active_iter (GTK_COMBO_BOX (self->auth_type_combo), &iter))
+    gtk_tree_model_get (gtk_combo_box_get_model (GTK_COMBO_BOX (self->auth_type_combo)),
+                        &iter, AUTH_COL_MECH, &mech, -1);
+  return mech;
+}
+
+static GtkWidget *
+auth_type_combo_new (void)
+{
+  GtkListStore *store = gtk_list_store_new (AUTH_N_COLS, G_TYPE_STRING,
+                                            G_TYPE_STRING, G_TYPE_BOOLEAN);
+  GtkWidget *combo = gtk_combo_box_new_with_model (GTK_TREE_MODEL (store));
+  GtkCellRenderer *renderer = gtk_cell_renderer_text_new ();
+  const gchar * const *mechs = sieve_sasl_known_mechanisms ();
+  GtkTreeIter iter;
+
+  gtk_list_store_insert_with_values (store, &iter, -1,
+                                     AUTH_COL_LABEL, _("Automatic"),
+                                     AUTH_COL_MECH, NULL,
+                                     AUTH_COL_STRUCK, FALSE, -1);
+  for (gsize i = 0; mechs[i] != NULL; i++)
+    gtk_list_store_insert_with_values (store, &iter, -1,
+                                       AUTH_COL_LABEL, mechs[i],
+                                       AUTH_COL_MECH, mechs[i],
+                                       AUTH_COL_STRUCK, FALSE, -1);
+  g_object_unref (store);
+
+  gtk_cell_layout_pack_start (GTK_CELL_LAYOUT (combo), renderer, TRUE);
+  gtk_cell_layout_add_attribute (GTK_CELL_LAYOUT (combo), renderer,
+                                 "text", AUTH_COL_LABEL);
+  gtk_cell_layout_add_attribute (GTK_CELL_LAYOUT (combo), renderer,
+                                 "strikethrough", AUTH_COL_STRUCK);
+  gtk_widget_set_halign (combo, GTK_ALIGN_START);
+  return combo;
+}
+
 /* --- EMailConfigPage: defaults / validation / commit ----------------- */
 
 /* Seeds the fields: the account's sieve-config profile if it exists,
@@ -160,6 +242,7 @@ sieve_config_page_load_fields (SieveConfigPage *self)
                                               : SIEVE_ENC_STARTTLS);
   gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->auto_connect_check),
                                 cfg->auto_connect);
+  auth_type_select (self, cfg->auth_mechanism);
 
   /* Default state: password field (and its label) hidden, "Forget"
    * button visible. Connecting takes the password from the keyring;
@@ -270,10 +353,11 @@ sieve_config_page_forget_password (GtkButton *button, gpointer user_data)
                         "(it will be stored on \"Apply\")."));
 }
 
-/* --- "Connectivity" section: "Test" button --------------------------- *
+/* --- "Connectivity" section + "Type" check: shared worker plumbing ----- *
  *
- * Attempts a ManageSieve connection + authentication with the
- * currently entered values (nothing is saved) and shows the result.
+ * "Test" attempts a ManageSieve connection + authentication with the
+ * currently entered values (nothing is saved) and shows the result;
+ * "Check Supported Types" probes each SASL mechanism the same way.
  * All networking goes through a GTask on a worker thread — never the
  * GTK loop, nor sieve_secret_* / sieve_account_* on the main thread. */
 typedef struct {
@@ -282,6 +366,7 @@ typedef struct {
   gboolean implicit_tls;
   gchar   *user;
   gchar   *password;            /* entered; empty -> keyring then IMAP password (EDS) */
+  gchar   *auth_mechanism;      /* forced mechanism, NULL = automatic ("Test" only) */
   gboolean use_oauth2;
   gchar   *account_uid;         /* for EDS: OAuth2 token or account password */
   ESourceRegistry *registry;    /* ref transferred from the main thread */
@@ -294,6 +379,7 @@ test_conn_input_free (TestConnInput *in)
     return;
   g_free (in->host);
   g_free (in->user);
+  g_free (in->auth_mechanism);
   if (in->password != NULL) {
     if (*in->password != '\0')
       memset (in->password, 0, strlen (in->password));
@@ -304,6 +390,83 @@ test_conn_input_free (TestConnInput *in)
   g_free (in);
 }
 
+/* Secrets resolved on the worker thread for one run. */
+typedef struct {
+  gchar       *token;        /* OAuth2 access token (g_free, wiped) */
+  gchar       *keyring_pw;   /* sieve_secret_password_free */
+  gchar       *eds_pw;       /* g_free, wiped */
+  const gchar *password;     /* points into `in`, keyring_pw or eds_pw */
+} ResolvedCreds;
+
+static void
+wipe_free (gchar **secret)
+{
+  if (*secret != NULL && **secret != '\0')
+    memset (*secret, 0, strlen (*secret));
+  g_clear_pointer (secret, g_free);
+}
+
+static void
+resolved_creds_clear (ResolvedCreds *rc)
+{
+  rc->password = NULL;
+  wipe_free (&rc->token);
+  wipe_free (&rc->eds_pw);
+  if (rc->keyring_pw != NULL) {
+    sieve_secret_password_free (rc->keyring_pw);
+    rc->keyring_pw = NULL;
+  }
+}
+
+/* OAuth2 account: access token requested from evolution-data-server
+ * (acquisition + refresh delegated to EDS). Otherwise password
+ * resolution: entered -> plugin's keyring -> Evolution account's (IMAP)
+ * password read back via EDS — same order as the editing dialog; a
+ * failed lookup is not blocking (rc->password stays NULL). */
+static gboolean
+resolve_creds (const TestConnInput *in, ResolvedCreds *rc,
+               GCancellable *cancellable, GError **error)
+{
+  if (in->use_oauth2) {
+    rc->token = sieve_account_dup_oauth2_token (in->registry, in->account_uid,
+                                                cancellable, NULL, error);
+    return rc->token != NULL;
+  }
+
+  if (in->password != NULL && *in->password != '\0') {
+    rc->password = in->password;
+    return TRUE;
+  }
+
+  rc->keyring_pw = sieve_secret_lookup_password_sync (in->host, in->port,
+                                                      in->user, cancellable, NULL);
+  if (rc->keyring_pw != NULL && *rc->keyring_pw != '\0')
+    rc->password = rc->keyring_pw;
+  else if (in->account_uid != NULL) {
+    rc->eds_pw = sieve_account_dup_stored_password (in->registry, in->account_uid,
+                                                    cancellable, NULL);
+    rc->password = rc->eds_pw;
+  }
+  return TRUE;
+}
+
+/* New client connected to the input's server (TLS + capabilities). */
+static SieveManageSieveClient *
+conn_client_connect (const TestConnInput *in, GCancellable *cancellable,
+                     GError **error)
+{
+  SieveManageSieveClient *client =
+    sieve_managesieve_client_new (in->host, in->port, in->implicit_tls);
+
+  sieve_managesieve_client_set_timeout (client,
+                                        SIEVE_MANAGESIEVE_DEFAULT_TIMEOUT_SECONDS);
+  if (!sieve_managesieve_client_connect_sync (client, cancellable, error)) {
+    g_object_unref (client);
+    return NULL;
+  }
+  return client;
+}
+
 static void
 test_conn_task_run (GTask *task, gpointer source_object, gpointer task_data,
                     GCancellable *cancellable)
@@ -311,74 +474,28 @@ test_conn_task_run (GTask *task, gpointer source_object, gpointer task_data,
   TestConnInput *in = task_data;
   GError *error = NULL;
   SieveManageSieveClient *client;
-  gchar *keyring_pw = NULL;    /* sieve_secret_password_free */
-  gchar *eds_pw = NULL;        /* g_free, wiped beforehand */
-  const gchar *effective_pw = NULL;
+  ResolvedCreds rc = { 0 };
   gchar *mech = NULL;          /* negotiated SASL mechanism, returned to the caller */
 
   (void) source_object;
 
-  client = sieve_managesieve_client_new (in->host, in->port, in->implicit_tls);
-  sieve_managesieve_client_set_timeout (client,
-                                        SIEVE_MANAGESIEVE_DEFAULT_TIMEOUT_SECONDS);
-
-  if (!sieve_managesieve_client_connect_sync (client, cancellable, &error))
-    goto done;
-
-  if (in->use_oauth2) {
-    /* Access token requested from evolution-data-server (acquisition +
-     * refresh delegated to EDS), passed to OAUTHBEARER / XOAUTH2. */
-    gchar *token = sieve_account_dup_oauth2_token (in->registry, in->account_uid,
-                                                   cancellable, NULL, &error);
-    if (token == NULL)
-      goto done;
-    {
-      SieveManageSieveAuth auth = { .authid = in->user, .oauth2_token = token };
-      gboolean ok = sieve_managesieve_client_authenticate_sync (client, NULL,
-                                                                &auth, cancellable,
-                                                                &error);
-      if (*token != '\0')
-        memset (token, 0, strlen (token));
-      g_free (token);
-      if (!ok)
-        goto done;
-    }
-  } else {
-    /* Password resolution: entered -> plugin's keyring -> Evolution
-     * account's (IMAP) password read back via EDS. Same order as the
-     * editing dialog. A failed lookup is not blocking. */
-    if (in->password != NULL && *in->password != '\0') {
-      effective_pw = in->password;
-    } else {
-      keyring_pw = sieve_secret_lookup_password_sync (in->host, in->port,
-                                                      in->user, cancellable, NULL);
-      if (keyring_pw != NULL && *keyring_pw != '\0') {
-        effective_pw = keyring_pw;
-      } else if (in->account_uid != NULL) {
-        eds_pw = sieve_account_dup_stored_password (in->registry, in->account_uid,
-                                                    cancellable, NULL);
-        effective_pw = eds_pw;
-      }
-    }
-    {
-      SieveManageSieveAuth auth = { .authid = in->user, .password = effective_pw };
-      if (!sieve_managesieve_client_authenticate_sync (client, NULL, &auth,
-                                                       cancellable, &error))
-        goto done;
-    }
+  client = conn_client_connect (in, cancellable, &error);
+  if (client == NULL) {
+    g_task_return_error (task, error);
+    return;
   }
 
-  mech = g_strdup (sieve_managesieve_client_get_auth_mechanism (client));
+  if (resolve_creds (in, &rc, cancellable, &error)) {
+    SieveManageSieveAuth auth = { .authid = in->user,
+                                  .password = rc.password,
+                                  .oauth2_token = rc.token };
 
-done:
-  effective_pw = NULL;
-  if (keyring_pw != NULL)
-    sieve_secret_password_free (keyring_pw);
-  if (eds_pw != NULL) {
-    if (*eds_pw != '\0')
-      memset (eds_pw, 0, strlen (eds_pw));
-    g_free (eds_pw);
+    if (sieve_managesieve_client_authenticate_sync (client, in->auth_mechanism,
+                                                    &auth, cancellable, &error))
+      mech = g_strdup (sieve_managesieve_client_get_auth_mechanism (client));
   }
+
+  resolved_creds_clear (&rc);
   sieve_managesieve_client_disconnect (client);
   g_object_unref (client);
 
@@ -386,6 +503,89 @@ done:
     g_task_return_error (task, error);
   else
     g_task_return_pointer (task, mech, g_free);
+}
+
+/* Both network buttons are disabled while one of the two runs. */
+static void
+set_network_busy (SieveConfigPage *self, gboolean busy)
+{
+  self->test_in_flight = busy;
+  gtk_widget_set_sensitive (self->test_button, !busy);
+  gtk_widget_set_sensitive (self->check_types_button, !busy);
+}
+
+/* The type check has no result line of its own: its outcome goes into
+ * the button's tooltip (the struck-through entries are the visible
+ * result). An empty text restores the default tooltip. */
+static void
+check_types_set_status (SieveConfigPage *self, const gchar *text)
+{
+  gtk_widget_set_tooltip_text (
+    self->check_types_button,
+    (text != NULL && *text != '\0')
+      ? text
+      : _("Tries each authentication type with the server and strikes "
+          "through those that do not work. Uses the settings above, "
+          "without saving them."));
+}
+
+/* Snapshot of the widgets for a worker thread; NULL (+ message on the
+ * requesting button's status) if no server address was entered. */
+static TestConnInput *
+conn_input_from_widgets (SieveConfigPage *self, gboolean for_check)
+{
+  const gchar *host = gtk_entry_get_text (GTK_ENTRY (self->host_entry));
+  const gchar *user = gtk_entry_get_text (GTK_ENTRY (self->user_entry));
+  const gchar *password =
+    gtk_entry_get_text (GTK_ENTRY (self->password_entry));
+  TestConnInput *in;
+
+  if (host == NULL || *host == '\0') {
+    if (for_check)
+      check_types_set_status (self, _("Please enter the server address first."));
+    else
+      gtk_label_set_text (GTK_LABEL (self->test_status),
+                          _("Please enter the server address first."));
+    return NULL;
+  }
+
+  in = g_new0 (TestConnInput, 1);
+  in->host = g_strdup (host);
+  in->port = (guint16) gtk_spin_button_get_value_as_int (
+                          GTK_SPIN_BUTTON (self->port_spin));
+  if (in->port == 0)
+    in->port = SIEVE_DEFAULT_PORT;
+  in->implicit_tls =
+    gtk_combo_box_get_active (GTK_COMBO_BOX (self->encryption_combo))
+      == SIEVE_ENC_IMPLICIT;
+  in->user = g_strdup (user != NULL ? user : "");
+  in->auth_mechanism = auth_type_dup_selected (self);
+  /* The password field is visible only after "Forget"; otherwise
+   * resolution is left to fall back to the keyring then the account's
+   * IMAP password. */
+  if (gtk_widget_get_visible (self->password_entry)
+      && password != NULL && *password != '\0')
+    in->password = g_strdup (password);
+  in->use_oauth2 = self->account_is_oauth2;
+  in->account_uid = g_strdup (e_source_get_uid (self->account_source));
+  in->registry =
+    (self->registry != NULL) ? g_object_ref (self->registry) : NULL;
+  return in;
+}
+
+/* Starts `run` on a worker thread; `done` gets a reference on the page. */
+static void
+network_task_start (SieveConfigPage *self, TestConnInput *in,
+                    GAsyncReadyCallback done, GTaskThreadFunc run)
+{
+  GTask *task;
+
+  set_network_busy (self, TRUE);
+  self->test_cancellable = g_cancellable_new ();
+  task = g_task_new (NULL, self->test_cancellable, done, g_object_ref (self));
+  g_task_set_task_data (task, in, (GDestroyNotify) test_conn_input_free);
+  g_task_run_in_thread (task, run);
+  g_object_unref (task);
 }
 
 static void
@@ -409,8 +609,7 @@ test_conn_done (GObject *source, GAsyncResult *res, gpointer user_data)
     return;
   }
 
-  self->test_in_flight = FALSE;
-  gtk_widget_set_sensitive (self->test_button, TRUE);
+  set_network_busy (self, FALSE);
   g_clear_object (&self->test_cancellable);
 
   if (error != NULL) {
@@ -435,55 +634,297 @@ static void
 sieve_config_page_test_clicked (GtkButton *button, gpointer user_data)
 {
   SieveConfigPage *self = SIEVE_CONFIG_PAGE (user_data);
-  const gchar *host = gtk_entry_get_text (GTK_ENTRY (self->host_entry));
-  const gchar *user = gtk_entry_get_text (GTK_ENTRY (self->user_entry));
-  const gchar *password =
-    gtk_entry_get_text (GTK_ENTRY (self->password_entry));
   TestConnInput *in;
-  GTask *task;
 
   (void) button;
 
   if (self->test_in_flight)
     return;
 
-  if (host == NULL || *host == '\0') {
-    gtk_label_set_text (GTK_LABEL (self->test_status),
-                        _("Please enter the server address first."));
+  in = conn_input_from_widgets (self, FALSE);
+  if (in == NULL)
+    return;
+
+  gtk_label_set_text (GTK_LABEL (self->test_status), _("Testing..."));
+  network_task_start (self, in, test_conn_done, test_conn_task_run);
+}
+
+/* --- "Check Supported Types" button ----------------------------------- *
+ *
+ * Connects, reads the server's SASL capability, then tries to
+ * authenticate with each mechanism this module knows (one fresh
+ * connection per attempt) and strikes through in the "Type" list those
+ * that don't work.
+ *
+ *   - Not advertised by the server, or unusable with this account
+ *     (OAuth mechanisms without an OAuth2 account, password mechanisms
+ *     with one): unsupported, no login attempted.
+ *   - GSSAPI: tried as such (no password involved, a failure is
+ *     unambiguous).
+ *   - Password / OAuth mechanisms: a failed attempt could just as well be
+ *     a wrong password as a broken mechanism. So a failure only counts
+ *     against the mechanism if another one of that kind succeeded; when
+ *     none did, the failures are reported as "untested" (left un-struck)
+ *     and the run stops after MAX_AMBIGUOUS_FAILURES of them, so a wrong
+ *     password can't trip the server's brute-force protection. */
+
+#define MAX_AMBIGUOUS_FAILURES 2
+#define MAX_MECHS 16
+
+typedef enum {
+  PROBE_UNTESTED = 0,   /* no verdict: left as is */
+  PROBE_OK,
+  PROBE_UNSUPPORTED,
+  PROBE_AMBIGUOUS,      /* worker-internal: failed, cause unknown */
+} ProbeState;
+
+typedef struct {
+  ProbeState states[MAX_MECHS];  /* indexed like sieve_sasl_known_mechanisms() */
+  gboolean   stopped_early;      /* credentials look wrong: run cut short */
+  gboolean   no_credentials;     /* password/token mechanisms could not be tried */
+} CheckResult;
+
+static gboolean
+mech_is_oauth_name (const gchar *mech)
+{
+  return g_str_equal (mech, "OAUTHBEARER") || g_str_equal (mech, "XOAUTH2");
+}
+
+static gboolean
+mech_offered (gchar **offered, const gchar *mech)
+{
+  for (gsize i = 0; offered != NULL && offered[i] != NULL; i++)
+    if (g_ascii_strcasecmp (offered[i], mech) == 0)
+      return TRUE;
+  return FALSE;
+}
+
+static void
+check_types_task_run (GTask *task, gpointer source_object, gpointer task_data,
+                      GCancellable *cancellable)
+{
+  TestConnInput *in = task_data;
+  const gchar * const *mechs = sieve_sasl_known_mechanisms ();
+  CheckResult *result = g_new0 (CheckResult, 1);
+  SieveManageSieveClient *client;
+  ResolvedCreds rc = { 0 };
+  g_auto (GStrv) offered = NULL;
+  GError *error = NULL;
+  gboolean any_ok = FALSE;
+  guint ambiguous = 0;
+  gsize n;
+
+  (void) source_object;
+
+  client = conn_client_connect (in, cancellable, &error);
+  if (client == NULL) {
+    g_free (result);
+    g_task_return_error (task, error);
+    return;
+  }
+  {
+    const gchar *cap = sieve_managesieve_client_get_sasl_capability (client);
+
+    offered = g_strsplit_set (cap != NULL ? cap : "", " \t", -1);
+  }
+  sieve_managesieve_client_disconnect (client);
+  g_object_unref (client);
+
+  /* A token that can't be obtained is an error worth reporting; a missing
+   * password is not (those mechanisms are simply left untested). */
+  if (!resolve_creds (in, &rc, cancellable, &error)) {
+    g_free (result);
+    g_task_return_error (task, error);
     return;
   }
 
-  in = g_new0 (TestConnInput, 1);
-  in->host = g_strdup (host);
-  in->port = (guint16) gtk_spin_button_get_value_as_int (
-                          GTK_SPIN_BUTTON (self->port_spin));
-  if (in->port == 0)
-    in->port = SIEVE_DEFAULT_PORT;
-  in->implicit_tls =
-    gtk_combo_box_get_active (GTK_COMBO_BOX (self->encryption_combo))
-      == SIEVE_ENC_IMPLICIT;
-  in->user = g_strdup (user != NULL ? user : "");
-  /* The password field is visible only after "Forget"; otherwise
-   * resolution is left to fall back to the keyring then the account's
-   * IMAP password. */
-  if (gtk_widget_get_visible (self->password_entry)
-      && password != NULL && *password != '\0')
-    in->password = g_strdup (password);
-  in->use_oauth2 = self->account_is_oauth2;
-  in->account_uid = g_strdup (e_source_get_uid (self->account_source));
-  in->registry =
-    (self->registry != NULL) ? g_object_ref (self->registry) : NULL;
+  for (n = 0; mechs[n] != NULL && n < MAX_MECHS; n++) {
+    const gchar *mech = mechs[n];
+    gboolean is_oauth = mech_is_oauth_name (mech);
+    gboolean is_gssapi = g_str_equal (mech, "GSSAPI");
+    gboolean have_secret;
+    SieveManageSieveAuth auth;
+    GError *probe_err = NULL;
+    gboolean ok;
 
-  self->test_in_flight = TRUE;
-  gtk_widget_set_sensitive (self->test_button, FALSE);
-  gtk_label_set_text (GTK_LABEL (self->test_status), _("Testing..."));
+    if (g_cancellable_is_cancelled (cancellable))
+      break;
 
-  self->test_cancellable = g_cancellable_new ();
-  task = g_task_new (NULL, self->test_cancellable, test_conn_done,
-                     g_object_ref (self));
-  g_task_set_task_data (task, in, (GDestroyNotify) test_conn_input_free);
-  g_task_run_in_thread (task, test_conn_task_run);
-  g_object_unref (task);
+    if (!mech_offered (offered, mech) || (is_oauth && !in->use_oauth2)
+        || (!is_oauth && !is_gssapi && in->use_oauth2)) {
+      result->states[n] = PROBE_UNSUPPORTED;
+      continue;
+    }
+
+    have_secret = is_gssapi
+                  || (is_oauth ? rc.token != NULL
+                               : (rc.password != NULL && *rc.password != '\0'));
+    if (!have_secret) {
+      result->states[n] = PROBE_UNTESTED;
+      result->no_credentials = TRUE;
+      continue;
+    }
+
+    if (!is_gssapi && !any_ok && ambiguous >= MAX_AMBIGUOUS_FAILURES) {
+      result->stopped_early = TRUE;
+      continue;   /* remains PROBE_UNTESTED */
+    }
+
+    client = conn_client_connect (in, cancellable, &probe_err);
+    if (client == NULL) {
+      /* Connection lost midway: keep what we learnt so far. */
+      g_clear_error (&probe_err);
+      break;
+    }
+
+    auth = (SieveManageSieveAuth) { .authid = in->user,
+                                    .password = is_oauth ? NULL : rc.password,
+                                    .oauth2_token = is_oauth ? rc.token : NULL };
+    ok = sieve_managesieve_client_authenticate_sync (client, mech, &auth,
+                                                     cancellable, &probe_err);
+    sieve_managesieve_client_disconnect (client);
+    g_object_unref (client);
+    g_clear_error (&probe_err);
+
+    if (g_cancellable_is_cancelled (cancellable))
+      break;
+
+    if (ok) {
+      result->states[n] = PROBE_OK;
+      if (!is_gssapi)
+        any_ok = TRUE;
+    } else if (is_gssapi) {
+      result->states[n] = PROBE_UNSUPPORTED;
+    } else {
+      result->states[n] = PROBE_AMBIGUOUS;
+      ambiguous++;
+    }
+  }
+
+  /* Resolve the ambiguous failures now that the whole run is known. */
+  for (n = 0; n < MAX_MECHS; n++)
+    if (result->states[n] == PROBE_AMBIGUOUS)
+      result->states[n] = any_ok ? PROBE_UNSUPPORTED : PROBE_UNTESTED;
+
+  resolved_creds_clear (&rc);
+  g_task_return_pointer (task, result, g_free);
+}
+
+/* Builds "A, B, C" from the mechanisms whose state is `wanted`. */
+static gchar *
+join_mechs_in_state (const CheckResult *r, ProbeState wanted)
+{
+  const gchar * const *mechs = sieve_sasl_known_mechanisms ();
+  g_autoptr (GString) out = g_string_new (NULL);
+
+  for (gsize i = 0; mechs[i] != NULL && i < MAX_MECHS; i++) {
+    if (r->states[i] != wanted)
+      continue;
+    if (out->len > 0)
+      g_string_append (out, ", ");
+    g_string_append (out, mechs[i]);
+  }
+  return g_string_free (g_steal_pointer (&out), FALSE);
+}
+
+static void
+check_types_done (GObject *source, GAsyncResult *res, gpointer user_data)
+{
+  SieveConfigPage *self = SIEVE_CONFIG_PAGE (user_data);
+  GError *error = NULL;
+  CheckResult *r;
+  GtkTreeModel *model;
+  GtkTreeIter iter;
+  g_autoptr (GString) msg = NULL;
+  g_autofree gchar *selected = NULL;
+  gsize idx = 0;
+  gboolean valid;
+
+  (void) source;
+
+  r = g_task_propagate_pointer (G_TASK (res), &error);
+
+  if (g_cancellable_is_cancelled (g_task_get_cancellable (G_TASK (res)))) {
+    g_clear_error (&error);
+    g_free (r);
+    g_object_unref (self);
+    return;
+  }
+
+  set_network_busy (self, FALSE);
+  g_clear_object (&self->test_cancellable);
+
+  if (r == NULL) {
+    g_autofree gchar *text = g_strdup_printf (_("Failed: %s"), error->message);
+
+    check_types_set_status (self, text);
+    g_error_free (error);
+    g_object_unref (self);
+    return;
+  }
+
+  /* Row 0 is "Automatic"; row i + 1 is known mechanism i. Only mechanisms
+   * with a verdict are touched: "untested" keeps the previous state. */
+  model = gtk_combo_box_get_model (GTK_COMBO_BOX (self->auth_type_combo));
+  selected = auth_type_dup_selected (self);
+  valid = gtk_tree_model_get_iter_first (model, &iter);
+  if (valid)
+    valid = gtk_tree_model_iter_next (model, &iter);   /* skip "Automatic" */
+  for (; valid && idx < MAX_MECHS; valid = gtk_tree_model_iter_next (model, &iter), idx++)
+    if (r->states[idx] == PROBE_OK || r->states[idx] == PROBE_UNSUPPORTED)
+      gtk_list_store_set (GTK_LIST_STORE (model), &iter, AUTH_COL_STRUCK,
+                          r->states[idx] == PROBE_UNSUPPORTED, -1);
+
+  msg = g_string_new (NULL);
+  {
+    g_autofree gchar *ok = join_mechs_in_state (r, PROBE_OK);
+    g_autofree gchar *bad = join_mechs_in_state (r, PROBE_UNSUPPORTED);
+
+    if (*ok != '\0')
+      g_string_append_printf (msg, _("Working: %s."), ok);
+    else
+      g_string_append (msg, _("No type could be verified."));
+    if (*bad != '\0')
+      g_string_append_printf (msg, _(" Not working (struck through): %s."), bad);
+  }
+  if (r->stopped_early)
+    g_string_append_printf (msg, " %s",
+      _("The server rejected the credentials, so the remaining password "
+        "types were not tried (to avoid locking the account)."));
+  else if (r->no_credentials)
+    g_string_append_printf (msg, " %s",
+      _("Some types could not be tried: no password or token available."));
+  if (selected != NULL) {
+    const gchar * const *mechs = sieve_sasl_known_mechanisms ();
+
+    for (gsize i = 0; mechs[i] != NULL && i < MAX_MECHS; i++)
+      if (g_str_equal (mechs[i], selected) && r->states[i] == PROBE_UNSUPPORTED)
+        g_string_append_printf (msg, " %s",
+          _("The selected type does not work with this server."));
+  }
+  check_types_set_status (self, msg->str);
+
+  g_free (r);
+  g_object_unref (self);
+}
+
+static void
+sieve_config_page_check_types_clicked (GtkButton *button, gpointer user_data)
+{
+  SieveConfigPage *self = SIEVE_CONFIG_PAGE (user_data);
+  TestConnInput *in;
+
+  (void) button;
+
+  if (self->test_in_flight)
+    return;
+
+  in = conn_input_from_widgets (self, TRUE);
+  if (in == NULL)
+    return;
+
+  check_types_set_status (self, _("Checking supported types..."));
+  network_task_start (self, in, check_types_done, check_types_task_run);
 }
 
 /* Purely local settings: nothing to write to the ESource
@@ -517,6 +958,8 @@ sieve_config_page_commit_changes (EMailConfigPage *page,
       == SIEVE_ENC_IMPLICIT;
   cfg->auto_connect =
     gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (self->auto_connect_check));
+  g_free (cfg->auth_mechanism);
+  cfg->auth_mechanism = auth_type_dup_selected (self);
   /* The keyring is now the default mode (no more "Remember" checkbox:
    * any entered password is stored, the "Forget" button is what
    * clears it). */
@@ -684,6 +1127,11 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
                                   SIEVE_ENC_IMPLICIT, _("TLS on a dedicated port"));
   gtk_widget_set_halign (self->encryption_combo, GTK_ALIGN_START);
 
+  self->auth_type_combo = auth_type_combo_new ();
+  self->check_types_button =
+    gtk_button_new_with_label (_("Check Supported Types"));
+  check_types_set_status (self, NULL);
+
   self->password_label = gtk_label_new (_("Password:"));
   gtk_label_set_xalign (GTK_LABEL (self->password_label), 1.0);
   self->password_entry = gtk_entry_new ();
@@ -745,17 +1193,26 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
    * below. */
   add_section_header (GTK_BOX (content), _("Authentication"), 0);
   grid = add_section_grid (GTK_BOX (content));
-  add_field (GTK_GRID (grid), 0, _("Username:"), self->user_entry, 3);
-  gtk_grid_attach (GTK_GRID (grid), self->password_label, 0, 1, 1, 1);
+  {
+    GtkWidget *type_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+
+    gtk_box_pack_start (GTK_BOX (type_box), self->check_types_button,
+                        FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (type_box), self->auth_type_combo,
+                        FALSE, FALSE, 0);
+    add_field (GTK_GRID (grid), 0, _("Type:"), type_box, 3);
+  }
+  add_field (GTK_GRID (grid), 1, _("Username:"), self->user_entry, 3);
+  gtk_grid_attach (GTK_GRID (grid), self->password_label, 0, 2, 1, 1);
   {
     GtkWidget *auth_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_box_pack_start (GTK_BOX (auth_box), self->password_entry,
                         TRUE, TRUE, 0);
     gtk_box_pack_start (GTK_BOX (auth_box), self->forget_button,
                         FALSE, FALSE, 0);
-    gtk_grid_attach (GTK_GRID (grid), auth_box, 1, 1, 3, 1);
+    gtk_grid_attach (GTK_GRID (grid), auth_box, 1, 2, 3, 1);
   }
-  gtk_grid_attach (GTK_GRID (grid), self->forget_status, 1, 2, 3, 1);
+  gtk_grid_attach (GTK_GRID (grid), self->forget_status, 1, 3, 3, 1);
 
   /* "Connectivity" section: "Test" button that attempts a ManageSieve
    * connection + authentication with the entered values (without
@@ -794,12 +1251,16 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
                             G_CALLBACK (e_mail_config_page_changed), self);
   g_signal_connect_swapped (self->encryption_combo, "changed",
                             G_CALLBACK (e_mail_config_page_changed), self);
+  g_signal_connect_swapped (self->auth_type_combo, "changed",
+                            G_CALLBACK (e_mail_config_page_changed), self);
   g_signal_connect_swapped (self->password_entry, "changed",
                             G_CALLBACK (e_mail_config_page_changed), self);
   g_signal_connect_swapped (self->auto_connect_check, "toggled",
                             G_CALLBACK (e_mail_config_page_changed), self);
   g_signal_connect (self->forget_button, "clicked",
                     G_CALLBACK (sieve_config_page_forget_password), self);
+  g_signal_connect (self->check_types_button, "clicked",
+                    G_CALLBACK (sieve_config_page_check_types_clicked), self);
   g_signal_connect (self->test_button, "clicked",
                     G_CALLBACK (sieve_config_page_test_clicked), self);
 

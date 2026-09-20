@@ -652,6 +652,8 @@ typedef struct {
   gboolean implicit_tls;
   gchar *user;
   gchar *password;        /* entered by the user; empty -> read from keyring */
+  gchar *auth_mechanism;  /* SASL mechanism forced in the account's page;
+                           * NULL = automatic negotiation */
 
   /* Selected Evolution account (index > 0): `account_source_uid` +
    * `registry` let the worker thread either request an OAuth2 token
@@ -668,6 +670,7 @@ connect_task_input_free (ConnectTaskInput *in)
 {
   g_free (in->host);
   g_free (in->user);
+  g_free (in->auth_mechanism);
   g_free (in->password);
   g_free (in->account_source_uid);
   g_clear_object (&in->registry);
@@ -770,7 +773,9 @@ connect_task_run (GTask *task, gpointer source_object, gpointer task_data,
 
     {
       SieveManageSieveAuth auth = { .authid = in->user, .oauth2_token = token };
-      gboolean ok = sieve_managesieve_client_authenticate_sync (client, NULL, &auth,
+      gboolean ok = sieve_managesieve_client_authenticate_sync (client,
+                                                                in->auth_mechanism,
+                                                                &auth,
                                                                 cancellable, &error);
       /* The token is a secret: wipe it before releasing the memory. */
       if (*token != '\0')
@@ -813,9 +818,11 @@ connect_task_run (GTask *task, gpointer source_object, gpointer task_data,
 
     {
       /* mechanism = NULL: automatic negotiation (SCRAM if the server
-       * offers it, otherwise PLAIN…). */
+       * offers it, otherwise PLAIN…); otherwise the type chosen in the
+       * account editor's "Sieve Filters" page. */
       SieveManageSieveAuth auth = { .authid = in->user, .password = effective_pw };
-      if (!sieve_managesieve_client_authenticate_sync (client, NULL, &auth,
+      if (!sieve_managesieve_client_authenticate_sync (client,
+                                                       in->auth_mechanism, &auth,
                                                        cancellable, &error))
         goto fail;
     }
@@ -986,6 +993,7 @@ start_connect (SieveEditorState *state)
                : (guint16) g_ascii_strtoull (SIEVE_DEFAULT_PORT, NULL, 10);
   in->implicit_tls = cfg->implicit_tls;
   in->user = g_strdup (eff_user);
+  in->auth_mechanism = g_strdup (cfg->auth_mechanism);
   in->password = NULL;   /* no field here: a password specific to the
                           * plugin (its own keyring, populated from the
                           * account editor's "Sieve Filters" page) then,

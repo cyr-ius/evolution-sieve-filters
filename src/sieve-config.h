@@ -30,6 +30,8 @@ typedef struct {
   gchar   *user;           /* stored login identifier */
   gboolean implicit_tls;   /* TRUE = implicit TLS; FALSE = StartTLS */
   gboolean auto_connect;   /* connect automatically on open */
+  gchar   *auth_mechanism; /* forced SASL mechanism (UPPERCASE name);
+                            * NULL = automatic negotiation */
   gboolean remember_password; /* vestige: always true now (the keyring
                                * is the default mode; removal goes
                                * through the "Forget" button). Key kept
