@@ -1,3 +1,18 @@
+evolution-sieve-filters (0.4.2-1) unstable; urgency=medium
+
+  * Add a "Type" list to the Authentication section of the account
+    editor's Sieve Filters page, to force a SASL mechanism (default:
+    Automatic). The choice is stored per account and used by the "Test"
+    button and by the editing dialog.
+  * Add a "Check Supported Types" button that tries each mechanism and
+    strikes through those that do not work. Password/OAuth failures are
+    only counted against a mechanism if another one succeeded, and the
+    check stops after two such failures, so a wrong password cannot lock
+    the account.
+  * Update the French translation.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sun, 20 Sep 2026 13:15:26 +0000
+
 evolution-sieve-filters (0.4.1-1) unstable; urgency=medium
 
   * Fix SASL GSSAPI locking users out: automatic negotiation picks
