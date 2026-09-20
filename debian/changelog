@@ -1,3 +1,15 @@
+evolution-sieve-filters (0.4.1-1) unstable; urgency=medium
+
+  * Fix SASL GSSAPI locking users out: automatic negotiation picks
+    GSSAPI as soon as a Kerberos ticket exists, but it can still fail
+    (service principal missing from the server's keytab, CNAME or
+    canonicalization mismatch), and there was no fallback. A failed
+    GSSAPI attempt now falls back to the next mechanism (SCRAM, PLAIN…).
+    Only GSSAPI in automatic mode is retried: password mechanisms are
+    never replayed and a forced mechanism is never replaced.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sun, 20 Sep 2026 12:54:01 +0000
+
 evolution-sieve-filters (0.4.0-1) unstable; urgency=medium
 
   * Add an "Unlock" button to an opaque rule's read-only view in the
