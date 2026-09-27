@@ -10,9 +10,14 @@
 #   tests/dovecot/kdc.sh --stop     stops it
 #
 # Realm: SIEVE.TEST — principals: testuser@SIEVE.TEST (password: testpass,
-# same as the ManageSieve fixture's passwd-file) and the service principal
-# sieve/localhost@SIEVE.TEST, exported to run/krb5/dovecot.keytab for
-# Dovecot's auth_krb5_keytab (see dovecot.conf.in).
+# same as the ManageSieve fixture's passwd-file) and the service principals
+# sieve/localhost@SIEVE.TEST and sieve/CANON_HOST@SIEVE.TEST (see below),
+# exported to run/krb5/dovecot.keytab for Dovecot's auth_krb5_keytab (see
+# dovecot.conf.in). The second principal doesn't need to resolve anywhere
+# (Kerberos principal names are just strings): it exists so smoke.sh can
+# exercise --gssapi-hostname (issue #2 — a ManageSieve host that's a DNS
+# alias/CNAME not matching the connection hostname) without needing real
+# DNS or a second server.
 #
 # To obtain a ticket against this KDC (e.g. before running
 # test-managesieve --mech GSSAPI by hand):
@@ -26,6 +31,7 @@ FIX="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KRB="$FIX/run/krb5"
 REALM="SIEVE.TEST"
 KDC_PORT=60088
+CANON_HOST="sieve-canonical.sieve.test"   # fictitious, never resolved
 
 KDB5_UTIL="$(command -v kdb5_util || true)"
 [ -x "/usr/sbin/kdb5_util" ] && KDB5_UTIL="/usr/sbin/kdb5_util"
@@ -94,8 +100,10 @@ case "${1:-}" in
       "$KDB5_UTIL" -r "$REALM" -P "sieve-test-master-pw" create -s >/dev/null
       "$KADMIN_LOCAL" -q "addprinc -pw testpass testuser@$REALM" >/dev/null
       "$KADMIN_LOCAL" -q "addprinc -randkey sieve/localhost@$REALM" >/dev/null
+      "$KADMIN_LOCAL" -q "addprinc -randkey sieve/$CANON_HOST@$REALM" >/dev/null
       rm -f "$KRB/dovecot.keytab"
       "$KADMIN_LOCAL" -q "ktadd -k $KRB/dovecot.keytab sieve/localhost@$REALM" >/dev/null
+      "$KADMIN_LOCAL" -q "ktadd -k $KRB/dovecot.keytab sieve/$CANON_HOST@$REALM" >/dev/null
       # World-readable: Dovecot's auth worker doesn't run as root even
       # though the master process is started via sudo (see run.sh), and
       # this keytab only protects a disposable, throwaway test realm.

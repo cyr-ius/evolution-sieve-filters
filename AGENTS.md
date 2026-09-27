@@ -98,6 +98,24 @@ failure). See `tests/secret/README.md`.
   for a forced `--mech`). Covered by the "GSSAPI failing" cases of `smoke.sh`
   (broken `KRB5_CONFIG` + TGT-only ccache) and by `/sasl/select/exclude-*`.
 
+- **GSSAPI + DNS alias/CNAME (issue #2)**: the target service principal
+  ("sieve/\<hostname\>") is normally built from the connection host, but a
+  server can be configured to expect a *different* hostname there (Dovecot's
+  own `auth_gssapi_hostname`) — typically because clients connect via a
+  CNAME while the server's Kerberos identity is its canonical name. Fixed
+  by `--gssapi-hostname HOST` (`test-managesieve`) / the "Kerberos
+  hostname:" field in the account editor's Authentication section
+  (`sieve-config-page.c`, stored as `gssapi-hostname` in `sieve-config`,
+  empty by default = use the connection host): it overrides `GSASL_HOSTNAME`
+  for GSSAPI only (`SieveSaslCredentials.gssapi_hostname` /
+  `SieveManageSieveAuth.gssapi_hostname`), never OAUTHBEARER's own host=
+  field. `kdc.sh` exports a second keytab principal
+  (`sieve/<CANON_HOST>@SIEVE.TEST`, `CANON_HOST` a fictitious name — Kerberos
+  principals are just strings, no DNS involved) and `smoke.sh` reproduces
+  the mismatch by pointing Dovecot's `auth_gssapi_hostname` at it via a
+  live `reload` (client still connects to plain `localhost`): forced GSSAPI
+  fails without the override, succeeds with `--gssapi-hostname` set to it.
+
 - **`localhost:4190` = STARTTLS**, **`localhost:4191` = implicit TLS**.
 - Credentials: **`testuser` / `testpass`**.
 - `ssl = required`: no plaintext auth.
@@ -165,7 +183,14 @@ src/sieve-config-page.[ch]         "Sieve Filters" page of the account
                                    another password/OAuth mechanism
                                    succeeded, and the run stops after 2
                                    ambiguous failures, to avoid tripping
-                                   brute-force protection); password
+                                   brute-force protection) + "Kerberos
+                                   hostname:" field (advanced, empty by
+                                   default, stored as `gssapi-hostname`):
+                                   GSSAPI service principal hostname
+                                   override for a ManageSieve host that's
+                                   a DNS alias/CNAME (issue #2, see the
+                                   "GSSAPI + DNS alias/CNAME" entry
+                                   above); password
                                    field HIDDEN by
                                    default (password taken from the
                                    keyring); the "Forget password" button

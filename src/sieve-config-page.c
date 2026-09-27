@@ -81,6 +81,9 @@ struct _SieveConfigPage {
                                     * sieve_sasl_known_mechanisms()); model
                                     * columns: see AUTH_COL_* */
   GtkWidget *check_types_button;    /* "Check Supported Types" */
+  GtkWidget *gssapi_hostname_entry; /* advanced: GSSAPI service principal
+                                    * hostname override (empty = use
+                                    * "Server:" above); see issue #2 */
   GtkWidget *auto_connect_check;    /* "Connect automatically" */
   GtkWidget *test_button;           /* "Connectivity" section: "Test" button */
   GtkWidget *test_status;           /* result line below the button */
@@ -243,6 +246,8 @@ sieve_config_page_load_fields (SieveConfigPage *self)
   gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->auto_connect_check),
                                 cfg->auto_connect);
   auth_type_select (self, cfg->auth_mechanism);
+  gtk_entry_set_text (GTK_ENTRY (self->gssapi_hostname_entry),
+                      cfg->gssapi_hostname != NULL ? cfg->gssapi_hostname : "");
 
   /* Default state: password field (and its label) hidden, "Forget"
    * button visible. Connecting takes the password from the keyring;
@@ -367,6 +372,8 @@ typedef struct {
   gchar   *user;
   gchar   *password;            /* entered; empty -> keyring then IMAP password (EDS) */
   gchar   *auth_mechanism;      /* forced mechanism, NULL = automatic ("Test" only) */
+  gchar   *gssapi_hostname;     /* GSSAPI service principal hostname override,
+                                * NULL = use `host` */
   gboolean use_oauth2;
   gchar   *account_uid;         /* for EDS: OAuth2 token or account password */
   ESourceRegistry *registry;    /* ref transferred from the main thread */
@@ -380,6 +387,7 @@ test_conn_input_free (TestConnInput *in)
   g_free (in->host);
   g_free (in->user);
   g_free (in->auth_mechanism);
+  g_free (in->gssapi_hostname);
   if (in->password != NULL) {
     if (*in->password != '\0')
       memset (in->password, 0, strlen (in->password));
@@ -488,7 +496,8 @@ test_conn_task_run (GTask *task, gpointer source_object, gpointer task_data,
   if (resolve_creds (in, &rc, cancellable, &error)) {
     SieveManageSieveAuth auth = { .authid = in->user,
                                   .password = rc.password,
-                                  .oauth2_token = rc.token };
+                                  .oauth2_token = rc.token,
+                                  .gssapi_hostname = in->gssapi_hostname };
 
     if (sieve_managesieve_client_authenticate_sync (client, in->auth_mechanism,
                                                     &auth, cancellable, &error))
@@ -560,6 +569,12 @@ conn_input_from_widgets (SieveConfigPage *self, gboolean for_check)
       == SIEVE_ENC_IMPLICIT;
   in->user = g_strdup (user != NULL ? user : "");
   in->auth_mechanism = auth_type_dup_selected (self);
+  {
+    const gchar *gssapi_hostname =
+      gtk_entry_get_text (GTK_ENTRY (self->gssapi_hostname_entry));
+    in->gssapi_hostname = (gssapi_hostname != NULL && *gssapi_hostname != '\0')
+                            ? g_strdup (gssapi_hostname) : NULL;
+  }
   /* The password field is visible only after "Forget"; otherwise
    * resolution is left to fall back to the keyring then the account's
    * IMAP password. */
@@ -779,7 +794,8 @@ check_types_task_run (GTask *task, gpointer source_object, gpointer task_data,
 
     auth = (SieveManageSieveAuth) { .authid = in->user,
                                     .password = is_oauth ? NULL : rc.password,
-                                    .oauth2_token = is_oauth ? rc.token : NULL };
+                                    .oauth2_token = is_oauth ? rc.token : NULL,
+                                    .gssapi_hostname = in->gssapi_hostname };
     ok = sieve_managesieve_client_authenticate_sync (client, mech, &auth,
                                                      cancellable, &probe_err);
     sieve_managesieve_client_disconnect (client);
@@ -960,6 +976,13 @@ sieve_config_page_commit_changes (EMailConfigPage *page,
     gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (self->auto_connect_check));
   g_free (cfg->auth_mechanism);
   cfg->auth_mechanism = auth_type_dup_selected (self);
+  {
+    const gchar *gssapi_hostname =
+      gtk_entry_get_text (GTK_ENTRY (self->gssapi_hostname_entry));
+    g_free (cfg->gssapi_hostname);
+    cfg->gssapi_hostname = (gssapi_hostname != NULL && *gssapi_hostname != '\0')
+                             ? g_strdup (gssapi_hostname) : NULL;
+  }
   /* The keyring is now the default mode (no more "Remember" checkbox:
    * any entered password is stored, the "Forget" button is what
    * clears it). */
@@ -1132,6 +1155,17 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
     gtk_button_new_with_label (_("Check Supported Types"));
   check_types_set_status (self, NULL);
 
+  self->gssapi_hostname_entry = gtk_entry_new ();
+  gtk_widget_set_hexpand (self->gssapi_hostname_entry, TRUE);
+  gtk_entry_set_placeholder_text (GTK_ENTRY (self->gssapi_hostname_entry),
+                                  _("same as Server, above"));
+  gtk_widget_set_tooltip_text (
+    self->gssapi_hostname_entry,
+    _("Only needed with GSSAPI, and only if the server address above is "
+      "a DNS alias (CNAME): the hostname used to build the GSSAPI "
+      "service principal (\"sieve/<hostname>\"). Leave empty to use the "
+      "server address."));
+
   self->password_label = gtk_label_new (_("Password:"));
   gtk_label_set_xalign (GTK_LABEL (self->password_label), 1.0);
   self->password_entry = gtk_entry_new ();
@@ -1213,6 +1247,8 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
     gtk_grid_attach (GTK_GRID (grid), auth_box, 1, 2, 3, 1);
   }
   gtk_grid_attach (GTK_GRID (grid), self->forget_status, 1, 3, 3, 1);
+  add_field (GTK_GRID (grid), 4, _("Kerberos hostname:"),
+             self->gssapi_hostname_entry, 3);
 
   /* "Connectivity" section: "Test" button that attempts a ManageSieve
    * connection + authentication with the entered values (without

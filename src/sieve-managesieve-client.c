@@ -980,6 +980,7 @@ sieve_managesieve_client_authenticate_sync (SieveManageSieveClient *self,
   creds.oauth2_token = auth->oauth2_token;
   creds.hostname     = self->host;
   creds.port         = self->port;
+  creds.gssapi_hostname = auth->gssapi_hostname;
 
   chosen = sieve_sasl_select_mechanism (sasl_cap, mechanism, &creds, &sub);
   if (chosen == NULL)

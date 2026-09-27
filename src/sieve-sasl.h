@@ -46,6 +46,12 @@ typedef struct {
   const gchar *oauth2_token;  /* bare access token, required by OAUTHBEARER / XOAUTH2 */
   const gchar *hostname;      /* OAUTHBEARER: host= field (NULL => omitted) */
   guint16      port;          /* OAUTHBEARER: port= field (0 => omitted) */
+  const gchar *gssapi_hostname; /* GSSAPI service principal's hostname
+                                 * override (NULL => use `hostname`); for a
+                                 * ManageSieve host that's a DNS alias
+                                 * (CNAME) not matching the server's
+                                 * Kerberos keytab (issue #2). Never affects
+                                 * OAUTHBEARER's own host= field. */
 } SieveSaslCredentials;
 
 /* Mechanisms this module can drive, listed from most to least desirable.

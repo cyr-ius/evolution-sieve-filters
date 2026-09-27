@@ -332,7 +332,14 @@ sieve_sasl_new (const gchar                *mechanism,
     if (creds->password != NULL)
       gsasl_property_set (self->session, GSASL_PASSWORD, creds->password);
     gsasl_property_set (self->session, GSASL_SERVICE, "sieve");
-    if (creds->hostname != NULL)
+    /* GSASL_HOSTNAME is what libgsasl's GSSAPI mechanism uses to build the
+     * target principal ("sieve/<hostname>"). gssapi_hostname overrides it
+     * when the connection host is a DNS alias (CNAME) not covered by the
+     * server's keytab — see AGENTS.md. It never affects OAUTHBEARER's own
+     * host= field (oauth_host above, always keyed on creds->hostname). */
+    if (creds->gssapi_hostname != NULL)
+      gsasl_property_set (self->session, GSASL_HOSTNAME, creds->gssapi_hostname);
+    else if (creds->hostname != NULL)
       gsasl_property_set (self->session, GSASL_HOSTNAME, creds->hostname);
   }
 

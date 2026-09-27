@@ -32,6 +32,11 @@ typedef struct {
   gboolean auto_connect;   /* connect automatically on open */
   gchar   *auth_mechanism; /* forced SASL mechanism (UPPERCASE name);
                             * NULL = automatic negotiation */
+  gchar   *gssapi_hostname; /* GSSAPI service principal hostname override
+                             * (NULL = use `host`); advanced field for a
+                             * ManageSieve host that's a DNS alias (CNAME)
+                             * not covered by the server's Kerberos keytab
+                             * (issue #2) */
   gboolean remember_password; /* vestige: always true now (the keyring
                                * is the default mode; removal goes
                                * through the "Forget" button). Key kept

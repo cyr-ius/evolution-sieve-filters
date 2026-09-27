@@ -9,6 +9,7 @@
  *   [account <UID>]     <- one profile per Evolution account
  *   host=...  port=...  user=...  implicit-tls=...  auto-connect=...  remember-password=...
  *   auth-mechanism=...  (absent / "" => automatic negotiation)
+*   gssapi-hostname=...  (absent / "" => use `host`; advanced GSSAPI override)
  *
  * Tolerant: a missing or corrupt file = default values, never a
  * failure on the read side (the dialog must be able to open in all
@@ -139,6 +140,7 @@ sieve_config_free (SieveConfig *config)
   g_free (config->host);
   g_free (config->user);
   g_free (config->auth_mechanism);
+  g_free (config->gssapi_hostname);
   g_free (config);
 }
 
@@ -178,6 +180,7 @@ sieve_config_load_for_account (const gchar *account_uid)
   config->host = dup_string_key (kf, group, "host");
   config->user = dup_string_key (kf, group, "user");
   config->auth_mechanism = dup_string_key (kf, group, "auth-mechanism");
+  config->gssapi_hostname = dup_string_key (kf, group, "gssapi-hostname");
 
   {
     gint port = g_key_file_get_integer (kf, group, "port", NULL);
@@ -226,6 +229,10 @@ sieve_config_save_for_account (const SieveConfig *config,
     g_key_file_set_string (kf, group, "auth-mechanism", config->auth_mechanism);
   else
     g_key_file_remove_key (kf, group, "auth-mechanism", NULL);
+  if (config->gssapi_hostname != NULL && *config->gssapi_hostname != '\0')
+    g_key_file_set_string (kf, group, "gssapi-hostname", config->gssapi_hostname);
+  else
+    g_key_file_remove_key (kf, group, "gssapi-hostname", NULL);
 
   return save_state_file (kf, error);
 }

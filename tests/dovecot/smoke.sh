@@ -140,6 +140,39 @@ if [ "$HAVE_KDC" = 1 ] && grep -q "^auth_mechanisms.*gssapi" "$FIX/run/dovecot.c
   echo "$out" | grep -q "mechanism: GSSAPI)" \
     || { echo "FAILED: automatic negotiation didn't pick GSSAPI although a ticket was available" >&2; exit 1; }
 
+  # --gssapi-hostname (issue #2): reproduces the actual report. Dovecot
+  # itself decides which service principal it accepts, via its own
+  # auth_gssapi_hostname setting (normally == the address clients connect
+  # to; dovecot.conf.in sets it to "localhost" for every other case in
+  # this file). A DNS alias/CNAME means the client's connection hostname
+  # and the server's configured principal diverge: here we simulate that
+  # by pointing Dovecot's auth_gssapi_hostname at kdc.sh's CANON_HOST
+  # (a principal that IS in the keytab, just under a different name),
+  # while the client still connects to plain "localhost".
+  canon_host="sieve-canonical.sieve.test"   # must match kdc.sh's CANON_HOST
+  DOVECOT_CONF="$FIX/run/dovecot.conf"
+  sed -i "s/^auth_gssapi_hostname.*/auth_gssapi_hostname = $canon_host/" \
+    "$DOVECOT_CONF"
+  sudo dovecot -c "$DOVECOT_CONF" reload
+
+  echo; echo "===> SASL GSSAPI, server expects a different principal (CNAME case, no override)"
+  out="$("$BIN" "${gssapi_creds[@]}" --mech GSSAPI 2>&1 || true)"
+  echo "$out"
+  echo "$out" | grep -q "mechanism: GSSAPI)" \
+    && { echo "FAILED: GSSAPI can't have succeeded against a mismatched server principal" >&2; exit 1; }
+
+  echo; echo "===> SASL GSSAPI with --gssapi-hostname matching the server's principal (the fix)"
+  out="$("$BIN" "${gssapi_creds[@]}" --mech GSSAPI --gssapi-hostname "$canon_host" 2>&1)"
+  echo "$out"
+  echo "$out" | grep -q "mechanism: GSSAPI)" \
+    || { echo "FAILED: GSSAPI with --gssapi-hostname didn't authenticate" >&2; exit 1; }
+
+  # Restore the default before the rest of the battery (and in case
+  # something else reuses this persistent fixture afterwards).
+  sed -i "s/^auth_gssapi_hostname.*/auth_gssapi_hostname = localhost/" \
+    "$DOVECOT_CONF"
+  sudo dovecot -c "$DOVECOT_CONF" reload
+
   # GSSAPI that fails on the client side although a ticket exists (here: the
   # service ticket can't be obtained because the KDC is unreachable after the
   # TGT was acquired — the same client-side failure as a service principal

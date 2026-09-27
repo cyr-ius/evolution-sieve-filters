@@ -85,6 +85,7 @@ test_account_round_trip_and_isolation (void)
     .auto_connect = FALSE,
     .remember_password = TRUE,
     .auth_mechanism = (gchar *) "SCRAM-SHA-256",
+    .gssapi_hostname = (gchar *) "server.example.com",
   };
   SieveConfig *read;
 
@@ -113,19 +114,24 @@ test_account_round_trip_and_isolation (void)
   g_assert_false (read->auto_connect);
   g_assert_true (read->remember_password);
   g_assert_cmpstr (read->auth_mechanism, ==, "SCRAM-SHA-256");
+  g_assert_cmpstr (read->gssapi_hostname, ==, "server.example.com");
   sieve_config_free (read);
 
   /* Automatic negotiation (no forced mechanism) stays NULL, and
-   * clearing a forced mechanism removes the key. */
+   * clearing a forced mechanism removes the key. Same for the GSSAPI
+   * hostname override. */
   read = sieve_config_load_for_account ("acc-1");
   g_assert_null (read->auth_mechanism);
+  g_assert_null (read->gssapi_hostname);
   sieve_config_free (read);
 
   a2.auth_mechanism = NULL;
+  a2.gssapi_hostname = NULL;
   g_assert_true (sieve_config_save_for_account (&a2, &error));
   g_assert_no_error (error);
   read = sieve_config_load_for_account ("acc-2");
   g_assert_null (read->auth_mechanism);
+  g_assert_null (read->gssapi_hostname);
   sieve_config_free (read);
 
   /* An account never written keeps the defaults. */

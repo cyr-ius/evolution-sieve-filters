@@ -86,6 +86,13 @@ typedef struct {
   const gchar *authzid;       /* authorization identity (often NULL) */
   const gchar *password;      /* PLAIN, LOGIN, CRAM-MD5, SCRAM-* */
   const gchar *oauth2_token;  /* bare access token: OAUTHBEARER, XOAUTH2 */
+  const gchar *gssapi_hostname; /* GSSAPI only: overrides the connection
+                                 * host when building the service
+                                 * principal ("sieve/<gssapi_hostname>"),
+                                 * for a ManageSieve host that's a DNS
+                                 * alias (CNAME) not covered by the
+                                 * server's keytab. NULL => use the
+                                 * connection host, as before. */
 } SieveManageSieveAuth;
 
 /* Authenticates the session (AUTHENTICATE, RFC 5804 §2.1).
