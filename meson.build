@@ -1,5 +1,5 @@
 project('evolution-sieve-filters', 'c',
-  version: '0.4.3',
+  version: '0.4.4',
   default_options: ['c_std=gnu11', 'warning_level=2'])
 
 i18n = import('i18n')

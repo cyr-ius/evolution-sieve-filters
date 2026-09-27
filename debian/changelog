@@ -1,3 +1,19 @@
+evolution-sieve-filters (0.4.4-1) unstable; urgency=medium
+
+  * Fix fileinto to a nested folder being rejected by Dovecot when its
+    IMAP namespace separator isn't '/' (often '.' for Maildir++), e.g.
+    "Name must not have '/' characters" (issue #3). Add a "Folders"
+    section to the account editor's Sieve Filters page: a per-account
+    "Folder separator" field, with a "Detect Automatically" button that
+    asks the account's real IMAP server directly (there is no public
+    Camel/EDS API exposing it) and reuses its stored password; not
+    available for OAuth2 accounts. fileinto paths are translated
+    between the visual editor's canonical '/' and this separator when
+    switching between the visual and raw text tabs.
+  * Update the French translation.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sun, 27 Sep 2026 11:21:55 +0000
+
 evolution-sieve-filters (0.4.3-1) unstable; urgency=medium
 
   * Fix SASL GSSAPI against a ManageSieve server reached through a DNS
