@@ -1,3 +1,17 @@
+evolution-sieve-filters (0.4.3-1) unstable; urgency=medium
+
+  * Fix SASL GSSAPI against a ManageSieve server reached through a DNS
+    alias (CNAME), when the server expects a different Kerberos service
+    principal than the one built from the connection host (issue #2).
+    Add an optional "Kerberos hostname:" field to the account editor's
+    Authentication section (and --gssapi-hostname to test-managesieve)
+    to override the hostname used to build the GSSAPI service principal
+    ("sieve/<hostname>"); empty by default, using the connection host as
+    before.
+  * Update the French translation.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sun, 27 Sep 2026 10:09:05 +0000
+
 evolution-sieve-filters (0.4.2-1) unstable; urgency=medium
 
   * Add a "Type" list to the Authentication section of the account
