@@ -60,11 +60,28 @@ printf 'testuser:{PLAIN}testpass:%s:%s::%s/mail/testuser\n' \
 GSSAPI_MECH=""
 [ -e "/usr/lib/dovecot/modules/auth/libmech_gssapi.so" ] && GSSAPI_MECH=" gssapi"
 
+# IMAP: same story as GSSAPI above, but for the whole protocol rather
+# than one mechanism -- "dovecot-imapd" (the /usr/lib/dovecot/imap
+# executable) is a separate package from dovecot-core, not installed by
+# default. Listing "imap" in `protocols` when it's missing is FATAL at
+# startup ("service(imap) access(...) failed: No such file or
+# directory"), which would break every test in this fixture, not just
+# tests/test-imap-probe.c's battery in smoke.sh -- so both the protocol
+# name and the "service imap-login { ... }" block are only kept when the
+# binary actually exists.
+IMAP_PROTOCOL_NAME=""
+[ -x "/usr/lib/dovecot/imap" ] && IMAP_PROTOCOL_NAME=" imap"
+
 sed -e "s#@FIXTURE_DIR@#$FIX#g" \
     -e "s#@UID@#$(id -u)#g" \
     -e "s#@GID@#$(id -g)#g" \
     -e "s#@GSSAPI_MECH@#$GSSAPI_MECH#g" \
+    -e "s#@IMAP_PROTOCOL_NAME@#$IMAP_PROTOCOL_NAME#g" \
     "$FIX/dovecot.conf.in" > "$CONF"
+
+if [ -z "$IMAP_PROTOCOL_NAME" ]; then
+  sed -i '/# IMAP_BLOCK_BEGIN/,/# IMAP_BLOCK_END/d' "$CONF"
+fi
 
 case "${1:-}" in
   --stop)

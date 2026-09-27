@@ -216,4 +216,46 @@ else
 fi
 
 echo
-echo "smoke OK — implicit TLS, STARTTLS and SASL negotiation validated"
+echo "############################################################"
+echo "# Battery: IMAP hierarchy separator probe (issue #3)"
+echo "############################################################"
+if [ -x "/usr/lib/dovecot/imap" ]; then
+  IMAP_BIN="$ROOT/build/tests/test-imap-probe"
+  if [ ! -x "$IMAP_BIN" ]; then
+    echo "$IMAP_BIN not found — build it first:  meson compile -C build test-imap-probe" >&2
+    exit 1
+  fi
+  wait_port 4143
+  wait_port 4144
+  imap_creds=(--host localhost --user testuser --password testpass)
+
+  echo; echo "===> implicit TLS (port 4144) — mail_driver=maildir defaults to Maildir++, separator '.'"
+  out="$("$IMAP_BIN" "${imap_creds[@]}" --port 4144 2>&1)"
+  echo "$out"
+  echo "$out" | grep -q "Hierarchy separator: '.'" \
+    || { echo "FAILED: expected separator '.', see issue #3" >&2; exit 1; }
+
+  echo; echo "===> STARTTLS (port 4143)"
+  out="$("$IMAP_BIN" "${imap_creds[@]}" --port 4143 --starttls 2>&1)"
+  echo "$out"
+  echo "$out" | grep -q "Hierarchy separator: '.'" \
+    || { echo "FAILED: expected separator '.', see issue #3" >&2; exit 1; }
+
+  echo; echo "===> wrong password (must fail cleanly, not crash)"
+  out="$("$IMAP_BIN" --host localhost --user testuser --password wrong --port 4144 2>&1 || true)"
+  echo "$out"
+  echo "$out" | grep -q "Probe failed" \
+    || { echo "FAILED: a wrong password should have been rejected" >&2; exit 1; }
+else
+  echo
+  echo "SKIP: IMAP hierarchy separator probe (dovecot-imapd not installed --"
+  echo "      /usr/lib/dovecot/imap missing; run.sh already left IMAP out of"
+  echo "      protocols= for this same reason)"
+fi
+
+echo
+if [ -x "/usr/lib/dovecot/imap" ]; then
+  echo "smoke OK — implicit TLS, STARTTLS, SASL negotiation and IMAP separator probe validated"
+else
+  echo "smoke OK — implicit TLS, STARTTLS and SASL negotiation validated (IMAP separator probe skipped)"
+fi

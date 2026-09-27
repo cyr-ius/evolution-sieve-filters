@@ -31,6 +31,12 @@ filters.
   Filter…* (pre-fills a rule based on the sender), and a **"Sieve
   Filters"** page in the account editor to configure the connection per
   account.
+- **Nested folders that actually work with `fileinto`**: the account
+  editor's "Sieve Filters" page has a "Folder separator" field (with a
+  "Detect Automatically" button) for the server's real IMAP hierarchy
+  separator (often `.` for Dovecot/Maildir++, sometimes `/`) — without
+  it, a nested folder could be rejected by the server
+  (`Name must not have '/' characters`).
 - **Password kept in the keyring** (libsecret / Secret Service), never
   stored in plain text; falling back to the IMAP password already known
   to Evolution when unset.
@@ -155,6 +161,13 @@ real server…): see [`AGENTS.md`](AGENTS.md).
 - Tested in practice against Dovecot + Pigeonhole and Cyrus IMAP /
   timsieved; other ManageSieve server implementations should work (the
   client follows the RFC) but haven't been verified.
+- Folder separator "Detect Automatically" opens its own brief IMAP
+  connection and isn't offered for OAuth2 accounts (no password to hand
+  a plain `LOGIN`) — enter it manually for those. A single-character
+  separator is also inherently ambiguous if a folder name segment
+  itself contains that character (e.g. a folder named `Invoices.2024`
+  when the real separator is `.`) — the same ambiguity Dovecot itself
+  has to live with.
 
 ## Support
 

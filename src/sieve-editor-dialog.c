@@ -94,6 +94,10 @@ typedef struct {
 
   SieveManageSieveClient *client; /* NULL until connected */
   gchar *active_script_name;      /* currently loaded script, for SETACTIVE */
+  gchar  folder_separator;        /* selected account's real IMAP hierarchy
+                                    * separator (sieve-config), 0 = '/' --
+                                    * see sync_visual_to_text() /
+                                    * sync_text_to_visual() (issue #3) */
 
   /* "Seeded" mode (sieve_editor_dialog_new_with_seed, called by the
    * "Create a Sieve Filter…" context menu). */
@@ -350,6 +354,7 @@ on_account_changed (GtkComboBox *combo, SieveEditorState *state)
       update_connect_state (state);
       set_status (state, _("Disconnected."));
     }
+    state->folder_separator = '\0';
     update_reload_sensitive (state);
     start_mailbox_fetch (state, NULL); /* "fileinto" field back to free entry */
     remember_last_account (state);
@@ -436,20 +441,33 @@ set_script_text (SieveEditorState *state, const gchar *text)
   gtk_text_buffer_set_text (buf, text, -1);
 }
 
-/* Visual editor model -> text buffer. */
+/* Visual editor model -> text buffer.
+ *
+ * The visual model always works with '/' internally (matching the
+ * folder dropdown's Camel-canonical paths -- see
+ * sieve_rule_editor_set_mailboxes()), while the text buffer holds the
+ * literal wire format about to be sent as-is via PUTSCRIPT: fileinto
+ * paths are translated to the account's real IMAP hierarchy separator
+ * here (issue #3). */
 static void
 sync_visual_to_text (SieveEditorState *state)
 {
   SieveRuleSet *set =
     sieve_rule_editor_dup_rule_set (SIEVE_RULE_EDITOR (state->rule_editor));
-  gchar *script = sieve_rule_set_to_script (set);
+  gchar *script;
+
+  sieve_rule_set_translate_folder_separator (set, state->folder_separator, TRUE);
+  script = sieve_rule_set_to_script (set);
 
   set_script_text (state, script);
   g_free (script);
   sieve_rule_set_free (set);
 }
 
-/* Text buffer -> visual editor model.
+/* Text buffer -> visual editor model. Reverse translation of the above:
+ * the text buffer holds whatever separator the account's real IMAP
+ * server uses (as read verbatim via GETSCRIPT), the visual model always
+ * gets '/' back (issue #3).
  * FALSE (with *error) if the script is outside the visual editor's scope. */
 static gboolean
 sync_text_to_visual (SieveEditorState *state, GError **error)
@@ -461,6 +479,7 @@ sync_text_to_visual (SieveEditorState *state, GError **error)
   if (set == NULL)
     return FALSE;
 
+  sieve_rule_set_translate_folder_separator (set, state->folder_separator, FALSE);
   sieve_rule_editor_set_rule_set (SIEVE_RULE_EDITOR (state->rule_editor), set);
   sieve_rule_set_free (set);
   return TRUE;
@@ -1014,6 +1033,8 @@ start_connect (SieveEditorState *state)
   in->use_oauth2 = info->uses_oauth2;
   in->account_source_uid = g_strdup (info->source_uid);
   in->registry = (state->registry != NULL) ? g_object_ref (state->registry) : NULL;
+
+  state->folder_separator = sieve_config_get_effective_folder_separator (cfg);
 
   sieve_config_free (cfg);
 

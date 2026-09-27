@@ -186,6 +186,40 @@ SieveRuleSet   *sieve_rule_set_parse (const gchar *script, GError **error);
  * and `rule` is left untouched. */
 SieveRule      *sieve_rule_unlock (const SieveRule *rule, GError **error);
 
+/* Translates fileinto folder paths between the model's canonical '/'
+ * hierarchy separator (Camel's own convention, used regardless of what
+ * the server actually speaks -- see sieve-imap-probe.h) and
+ * `real_separator`, the account's actual IMAP hierarchy separator
+ * (often '.' for Dovecot/Maildir++, sometimes '/'). Without this, a
+ * fileinto path built from the folder list (or typed by hand, following
+ * the everyday IMAP convention) is sent to the server as-is and gets
+ * rejected when the two separators differ -- issue #3
+ * (https://github.com/cyr-ius/evolution-sieve-filters/issues/3):
+ * Dovecot Sieve refused a literal '/' when its own separator is '.'.
+ *
+ * Only non-opaque rules' SIEVE_ACTION_FILEINTO arguments are touched;
+ * opaque rules (raw text kept verbatim) are never modified, so this is
+ * safe to call around sieve_rule_set_to_script() / sieve_rule_set_parse()
+ * without risking a foreign block (Nextcloud Mail, Roundcube...)
+ * elsewhere in the script.
+ *
+ * `real_separator` == '/' or '\0' is a no-op (default: no account
+ * configured, or the server happens to use '/' too).
+ *
+ * `to_real` TRUE: '/' -> real_separator (call before serializing, i.e.
+ * before sending the script to the server).
+ * `to_real` FALSE: real_separator -> '/' (call after parsing, i.e.
+ * after reading the script back from the server).
+ *
+ * Known limitation: a single-character delimiter scheme is inherently
+ * ambiguous if a folder name segment itself contains that literal
+ * character (e.g. a folder named "Invoices.2024" when the real
+ * separator is '.') -- the same ambiguity Dovecot itself has to live
+ * with. Not addressed here. */
+void sieve_rule_set_translate_folder_separator (SieveRuleSet *set,
+                                                gchar         real_separator,
+                                                gboolean      to_real);
+
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (SieveRuleSet, sieve_rule_set_free)
 
 G_END_DECLS

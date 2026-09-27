@@ -732,6 +732,84 @@ test_reject_unbalanced_braces (void)
   g_assert_error (error, SIEVE_MODEL_ERROR, SIEVE_MODEL_ERROR_SYNTAX);
 }
 
+/* issue #3: a fileinto path built from the canonical '/'-separated
+ * folder list must become the account's real separator on the wire,
+ * and come back as '/' after parsing the script read back from the
+ * server -- a full round trip through both directions. */
+static void
+test_folder_separator_roundtrip (void)
+{
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_new ();
+  SieveRule *r = sieve_rule_new ("Archive");
+  SieveAction *a = sieve_action_new (SIEVE_ACTION_FILEINTO);
+  g_autofree gchar *script = NULL;
+  g_autoptr (SieveRuleSet) back = NULL;
+  SieveRule *br;
+  SieveAction *ba;
+
+  a->arg = g_strdup ("INBOX/Archive/2024");
+  g_ptr_array_add (r->actions, a);
+  g_ptr_array_add (set->rules, r);
+
+  sieve_rule_set_translate_folder_separator (set, '.', TRUE);
+  g_assert_cmpstr (a->arg, ==, "INBOX.Archive.2024");
+
+  script = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (script, "fileinto \"INBOX.Archive.2024\";"));
+
+  back = sieve_rule_set_parse (script, NULL);
+  g_assert_nonnull (back);
+  sieve_rule_set_translate_folder_separator (back, '.', FALSE);
+
+  br = g_ptr_array_index (back->rules, 0);
+  ba = g_ptr_array_index (br->actions, 0);
+  g_assert_cmpstr (ba->arg, ==, "INBOX/Archive/2024");
+}
+
+/* A separator of '/' (default: no account configured, or the server
+ * happens to use '/' too) must be a strict no-op. */
+static void
+test_folder_separator_noop_for_slash (void)
+{
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_new ();
+  SieveRule *r = sieve_rule_new ("Archive");
+  SieveAction *a = sieve_action_new (SIEVE_ACTION_FILEINTO);
+
+  a->arg = g_strdup ("INBOX/Archive");
+  g_ptr_array_add (r->actions, a);
+  g_ptr_array_add (set->rules, r);
+
+  sieve_rule_set_translate_folder_separator (set, '/', TRUE);
+  g_assert_cmpstr (a->arg, ==, "INBOX/Archive");
+  sieve_rule_set_translate_folder_separator (set, '\0', TRUE);
+  g_assert_cmpstr (a->arg, ==, "INBOX/Archive");
+}
+
+/* An opaque rule's raw text is never touched, even if it happens to
+ * contain a fileinto with a '/'-separated path -- only structured
+ * (non-opaque) rules' SIEVE_ACTION_FILEINTO arguments are translated. */
+static void
+test_folder_separator_spares_opaque_rules (void)
+{
+  const gchar *script =
+    "if header :contains \"subject\" \"x\" {\n"
+    "  vacation \"I'm out\";\n"
+    "  fileinto \"INBOX/Kept\";\n"
+    "}\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+  g_autofree gchar *out = NULL;
+  SieveRule *r;
+
+  g_assert_nonnull (set);
+  g_assert_cmpuint (set->rules->len, ==, 1);
+  r = g_ptr_array_index (set->rules, 0);
+  g_assert_true (r->opaque);
+
+  sieve_rule_set_translate_folder_separator (set, '.', TRUE);
+  out = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (out, "fileinto \"INBOX/Kept\";"));
+}
+
 int
 main (int argc, char **argv)
 {
@@ -760,5 +838,11 @@ main (int argc, char **argv)
   g_test_add_func ("/sieve-model/disabled-rule-without-comment", test_disabled_rule_without_comment);
   g_test_add_func ("/sieve-model/disabled-rule-unparseable-comment-becomes-opaque",
                    test_disabled_rule_unparseable_comment_becomes_opaque);
+  g_test_add_func ("/sieve-model/folder-separator-roundtrip",
+                   test_folder_separator_roundtrip);
+  g_test_add_func ("/sieve-model/folder-separator-noop-for-slash",
+                   test_folder_separator_noop_for_slash);
+  g_test_add_func ("/sieve-model/folder-separator-spares-opaque-rules",
+                   test_folder_separator_spares_opaque_rules);
   return g_test_run ();
 }

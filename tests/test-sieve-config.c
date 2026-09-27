@@ -86,6 +86,7 @@ test_account_round_trip_and_isolation (void)
     .remember_password = TRUE,
     .auth_mechanism = (gchar *) "SCRAM-SHA-256",
     .gssapi_hostname = (gchar *) "server.example.com",
+    .folder_separator = '.',
   };
   SieveConfig *read;
 
@@ -104,6 +105,8 @@ test_account_round_trip_and_isolation (void)
   g_assert_false (read->implicit_tls);
   g_assert_true (read->auto_connect);
   g_assert_false (read->remember_password);
+  g_assert_cmpint (read->folder_separator, ==, '\0');   /* default: '/' */
+  g_assert_cmpint (sieve_config_get_effective_folder_separator (read), ==, '/');
   sieve_config_free (read);
 
   read = sieve_config_load_for_account ("acc-2");
@@ -115,6 +118,8 @@ test_account_round_trip_and_isolation (void)
   g_assert_true (read->remember_password);
   g_assert_cmpstr (read->auth_mechanism, ==, "SCRAM-SHA-256");
   g_assert_cmpstr (read->gssapi_hostname, ==, "server.example.com");
+  g_assert_cmpint (read->folder_separator, ==, '.');
+  g_assert_cmpint (sieve_config_get_effective_folder_separator (read), ==, '.');
   sieve_config_free (read);
 
   /* Automatic negotiation (no forced mechanism) stays NULL, and
@@ -127,11 +132,13 @@ test_account_round_trip_and_isolation (void)
 
   a2.auth_mechanism = NULL;
   a2.gssapi_hostname = NULL;
+  a2.folder_separator = '\0';
   g_assert_true (sieve_config_save_for_account (&a2, &error));
   g_assert_no_error (error);
   read = sieve_config_load_for_account ("acc-2");
   g_assert_null (read->auth_mechanism);
   g_assert_null (read->gssapi_hostname);
+  g_assert_cmpint (read->folder_separator, ==, '\0');
   sieve_config_free (read);
 
   /* An account never written keeps the defaults. */

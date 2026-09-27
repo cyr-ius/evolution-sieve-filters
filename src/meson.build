@@ -41,6 +41,18 @@ sieve_srv_dep = declare_dependency(
   dependencies: [glib_dep, gio_dep],
   include_directories: include_directories('.'))
 
+# IMAP probe (hierarchy separator discovery only -- issue #3). GLib/GIO
+# only, no GTK nor Evolution dependency: testable on its own (see
+# tests/test-imap-probe + tests/dovecot/smoke.sh).
+sieve_imap_probe_lib = static_library('sieve-imap-probe',
+  'sieve-imap-probe.c',
+  dependencies: [glib_dep, gio_dep])
+
+sieve_imap_probe_dep = declare_dependency(
+  link_with: sieve_imap_probe_lib,
+  dependencies: [glib_dep, gio_dep],
+  include_directories: include_directories('.'))
+
 # Storing the ManageSieve password in the keyring (libsecret).
 # GLib/GIO + libsecret, no GTK nor Evolution dependency: testable on its
 # own (see tests/test-sieve-secret + tests/secret/smoke.sh).
@@ -76,7 +88,7 @@ if evo_shell_dep.found() and evo_mail_dep.found()
     'sieve-account.c',
     dependencies: [glib_dep, gio_dep, gtk_dep, evo_shell_dep, evo_mail_dep,
                    camel_dep, eds_dep, sieve_client_dep, sieve_model_dep,
-                   sieve_secret_dep, sieve_config_dep],
+                   sieve_secret_dep, sieve_config_dep, sieve_imap_probe_dep],
     name_prefix: '',
     install: true,
     install_dir: evo_shell_dep.get_variable(pkgconfig: 'moduledir'))

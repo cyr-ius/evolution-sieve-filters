@@ -25,8 +25,19 @@ base_dir      = @FIXTURE_DIR@/run/state
 log_path      = @FIXTURE_DIR@/run/dovecot.log
 info_log_path = @FIXTURE_DIR@/run/dovecot.log
 
-# Only ManageSieve matters here; no IMAP/POP3/LMTP.
-protocols = sieve
+# IMAP is enabled too, but ONLY so tests/test-imap-probe.c can exercise
+# sieve-imap-probe.c (hierarchy separator discovery, issue #3) against a
+# real server -- no other test in this fixture uses it. No POP3/LMTP.
+# @IMAP_PROTOCOL_NAME@ is substituted by run.sh: " imap" if the
+# "dovecot-imapd" package (the actual /usr/lib/dovecot/imap executable --
+# a separate package from dovecot-core, like dovecot-gssapi below) is
+# installed, empty otherwise -- listing "imap" here unconditionally is
+# FATAL at startup if the binary is missing ("service(imap) access(...)
+# failed: No such file or directory"), which would break every test in
+# this fixture, not just the IMAP probe battery. The whole
+# "service imap-login { ... }" block below is stripped out the same way
+# (between the IMAP_BLOCK_BEGIN/END markers) when the package is absent.
+protocols = sieve@IMAP_PROTOCOL_NAME@
 
 # ssl = required: plaintext auth is refused as long as the session isn't
 # encrypted (STARTTLS or implicit TLS). Both paths are exposed,
@@ -72,6 +83,13 @@ userdb passwd-file {
 mail_driver = maildir
 mail_path   = @FIXTURE_DIR@/mail/%{user}/Maildir
 
+# mail_driver = maildir defaults to the Maildir++ layout, whose hierarchy
+# separator is '.' -- NOT '/'. This is deliberately left as-is (not
+# switched to "fs" layout, which would use '/'): it reproduces the exact
+# scenario of issue #3 (a Dovecot backend whose real separator differs
+# from the Sieve model's canonical '/'), which is precisely what
+# sieve-imap-probe.c / test-imap-probe.c is exercised against.
+
 service managesieve-login {
   # 4190: STARTTLS — behavior of a real ManageSieve server (RFC 5804).
   inet_listener sieve {
@@ -84,6 +102,21 @@ service managesieve-login {
     ssl  = yes
   }
 }
+
+# IMAP_BLOCK_BEGIN
+service imap-login {
+  # 4143: STARTTLS.
+  inet_listener imap {
+    port = 4143
+  }
+  # 4144: implicit TLS — default mode of sieve-imap-probe.c
+  #       (sieve_imap_probe_hierarchy_separator_sync(..., implicit_tls = TRUE)).
+  inet_listener imaps {
+    port = 4144
+    ssl  = yes
+  }
+}
+# IMAP_BLOCK_END
 
 sieve_script_path        = @FIXTURE_DIR@/mail/%{user}/sieve
 sieve_script_active_path = @FIXTURE_DIR@/mail/%{user}/.dovecot.sieve

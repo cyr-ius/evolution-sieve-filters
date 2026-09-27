@@ -10,6 +10,8 @@
  *   host=...  port=...  user=...  implicit-tls=...  auto-connect=...  remember-password=...
  *   auth-mechanism=...  (absent / "" => automatic negotiation)
 *   gssapi-hostname=...  (absent / "" => use `host`; advanced GSSAPI override)
+*   folder-separator=... (absent / "" => '/'; the account's real IMAP
+*                          hierarchy separator, issue #3)
  *
  * Tolerant: a missing or corrupt file = default values, never a
  * failure on the read side (the dialog must be able to open in all
@@ -183,6 +185,11 @@ sieve_config_load_for_account (const gchar *account_uid)
   config->gssapi_hostname = dup_string_key (kf, group, "gssapi-hostname");
 
   {
+    g_autofree gchar *sep = dup_string_key (kf, group, "folder-separator");
+    config->folder_separator = (sep != NULL && *sep != '\0') ? sep[0] : '\0';
+  }
+
+  {
     gint port = g_key_file_get_integer (kf, group, "port", NULL);
     config->port = (port > 0 && port <= G_MAXUINT16) ? (guint16) port : 0;
   }
@@ -233,6 +240,12 @@ sieve_config_save_for_account (const SieveConfig *config,
     g_key_file_set_string (kf, group, "gssapi-hostname", config->gssapi_hostname);
   else
     g_key_file_remove_key (kf, group, "gssapi-hostname", NULL);
+  if (config->folder_separator != '\0' && config->folder_separator != '/') {
+    gchar sep[2] = { config->folder_separator, '\0' };
+    g_key_file_set_string (kf, group, "folder-separator", sep);
+  } else {
+    g_key_file_remove_key (kf, group, "folder-separator", NULL);
+  }
 
   return save_state_file (kf, error);
 }

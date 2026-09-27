@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: evolution-sieve-filters 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-27 10:08+0000\n"
+"POT-Creation-Date: 2026-09-27 11:07+0000\n"
 "PO-Revision-Date: 2026-09-12+00:00\n"
 "Last-Translator: \n"
 "Language-Team: French\n"
@@ -38,17 +38,17 @@ msgstr ""
 "Créer une règle Sieve côté serveur à partir de l'expéditeur du message "
 "sélectionné"
 
-#: src/sieve-editor-dialog.c:126
+#: src/sieve-editor-dialog.c:130
 msgid "Connected"
 msgstr "Connecté"
 
-#: src/sieve-editor-dialog.c:126
+#: src/sieve-editor-dialog.c:130
 msgid "Not connected"
 msgstr "Non connecté"
 
 #. Message shown when the chosen account has no ManageSieve server
 #. * configured: the user must go through the account editor.
-#: src/sieve-editor-dialog.c:331
+#: src/sieve-editor-dialog.c:335
 msgid ""
 "No ManageSieve server configured for this account. Set it up in Edit → "
 "Accounts → this account → \"Sieve Filters\" tab."
@@ -56,38 +56,38 @@ msgstr ""
 "Aucun serveur ManageSieve configuré pour ce compte. Configurez-le dans "
 "Édition → Comptes → ce compte → onglet « Filtres Sieve »."
 
-#: src/sieve-editor-dialog.c:351
+#: src/sieve-editor-dialog.c:355
 msgid "Disconnected."
 msgstr "Déconnecté."
 
-#: src/sieve-editor-dialog.c:395
+#: src/sieve-editor-dialog.c:400
 msgid "— Choose an account —"
 msgstr "— Choisir un compte —"
 
-#: src/sieve-editor-dialog.c:402 src/sieve-rule-editor.c:484
+#: src/sieve-editor-dialog.c:407 src/sieve-rule-editor.c:484
 #: src/sieve-rule-editor.c:827
 msgid "(unnamed)"
 msgstr "(sans nom)"
 
-#: src/sieve-editor-dialog.c:414
+#: src/sieve-editor-dialog.c:419
 msgid "Account registry unavailable."
 msgstr "Registre des comptes indisponible."
 
-#: src/sieve-editor-dialog.c:415
+#: src/sieve-editor-dialog.c:420
 msgid "No mail account with a server."
 msgstr "Aucun compte de messagerie avec un serveur."
 
-#: src/sieve-editor-dialog.c:486
+#: src/sieve-editor-dialog.c:505
 #, c-format
 msgid "%s — visual editing available."
 msgstr "%s — édition visuelle disponible."
 
-#: src/sieve-editor-dialog.c:489
+#: src/sieve-editor-dialog.c:508
 #, c-format
 msgid "%s as raw text (visual editing unavailable: %s)."
 msgstr "%s en texte brut (édition visuelle indisponible : %s)."
 
-#: src/sieve-editor-dialog.c:529
+#: src/sieve-editor-dialog.c:548
 msgid ""
 "The server's script has a syntax error: fix it in \"Raw text\", then add the "
 "rule by hand."
@@ -95,7 +95,7 @@ msgstr ""
 "Le script du serveur contient une erreur de syntaxe : corrigez-la dans "
 "« Texte brut », puis ajoutez la règle à la main."
 
-#: src/sieve-editor-dialog.c:557
+#: src/sieve-editor-dialog.c:576
 msgid ""
 "Rule pre-filled from the message (selected on the right): complete the "
 "action — e.g. \"File into\" — then \"Save\"."
@@ -103,11 +103,11 @@ msgstr ""
 "Règle pré-remplie à partir du message (sélectionnée à droite) : complétez "
 "l'action — par ex. « Classer dans » — puis « Enregistrer »."
 
-#: src/sieve-editor-dialog.c:620
+#: src/sieve-editor-dialog.c:639
 msgid "Cancelling…"
 msgstr "Annulation…"
 
-#: src/sieve-editor-dialog.c:729
+#: src/sieve-editor-dialog.c:748
 msgid ""
 "# No active script yet.\n"
 "# Type your Sieve script then \"Save\".\n"
@@ -115,50 +115,50 @@ msgstr ""
 "# Aucun script actif pour le moment.\n"
 "# Saisissez votre script Sieve puis « Enregistrer ».\n"
 
-#: src/sieve-editor-dialog.c:792
+#: src/sieve-editor-dialog.c:811
 msgid "OAuth2 authentication (token supplied by Evolution)."
 msgstr "Authentification OAuth2 (jeton fourni par Evolution)."
 
-#: src/sieve-editor-dialog.c:841
+#: src/sieve-editor-dialog.c:860
 msgid "Password reused from the Evolution account."
 msgstr "Mot de passe réutilisé depuis le compte Evolution."
 
-#: src/sieve-editor-dialog.c:908
+#: src/sieve-editor-dialog.c:927
 msgid "Connection cancelled."
 msgstr "Connexion annulée."
 
-#: src/sieve-editor-dialog.c:910
+#: src/sieve-editor-dialog.c:929
 #, c-format
 msgid "Connection failed: %s"
 msgstr "Connexion échouée : %s"
 
-#: src/sieve-editor-dialog.c:922
+#: src/sieve-editor-dialog.c:941
 msgid " (offline: use \"Reload rules\" to send it.)"
 msgstr " (hors ligne : utilisez « Recharger les règles » pour l'envoyer.)"
 
-#: src/sieve-editor-dialog.c:948
+#: src/sieve-editor-dialog.c:967
 msgid "Connected. Script loaded"
 msgstr "Connecté. Script chargé"
 
-#: src/sieve-editor-dialog.c:976
+#: src/sieve-editor-dialog.c:995
 msgid "Choose an account first."
 msgstr "Choisissez d'abord un compte."
 
-#: src/sieve-editor-dialog.c:1031
+#: src/sieve-editor-dialog.c:1052
 msgid "Connecting via OAuth2… (token requested from Evolution)"
 msgstr "Connexion via OAuth2… (jeton demandé à Evolution)"
 
-#: src/sieve-editor-dialog.c:1032
+#: src/sieve-editor-dialog.c:1053
 msgid "Connecting… (\"Cancel\" to interrupt)"
 msgstr "Connexion en cours… (« Annuler » pour interrompre)"
 
-#: src/sieve-editor-dialog.c:1098
+#: src/sieve-editor-dialog.c:1119
 msgid "Reload cancelled."
 msgstr "Rechargement annulé."
 
 #. Connection lost: the session is no longer reliable. "Reload
 #. * rules" will start a fresh connection.
-#: src/sieve-editor-dialog.c:1102
+#: src/sieve-editor-dialog.c:1123
 #, c-format
 msgid ""
 "Connection lost during reload: %s. Use \"Reload rules\" to retry the "
@@ -167,40 +167,40 @@ msgstr ""
 "Connexion perdue pendant le rechargement : %s. Utilisez « Recharger les "
 "règles » pour retenter la connexion."
 
-#: src/sieve-editor-dialog.c:1113
+#: src/sieve-editor-dialog.c:1134
 #, c-format
 msgid "Reload failed: %s"
 msgstr "Rechargement échoué : %s"
 
-#: src/sieve-editor-dialog.c:1126
+#: src/sieve-editor-dialog.c:1147
 msgid "Rules reloaded from the server"
 msgstr "Règles rechargées depuis le serveur"
 
-#: src/sieve-editor-dialog.c:1144
+#: src/sieve-editor-dialog.c:1165
 msgid "Reloading rules… (\"Cancel\" to interrupt)"
 msgstr "Rechargement des règles… (« Annuler » pour interrompre)"
 
-#: src/sieve-editor-dialog.c:1181
+#: src/sieve-editor-dialog.c:1202
 msgid "Reload rules from the server?"
 msgstr "Recharger les règles depuis le serveur ?"
 
-#: src/sieve-editor-dialog.c:1184
+#: src/sieve-editor-dialog.c:1205
 msgid "Unsaved changes will be lost."
 msgstr "Les modifications non enregistrées seront perdues."
 
-#: src/sieve-editor-dialog.c:1186
+#: src/sieve-editor-dialog.c:1207
 msgid "_Cancel"
 msgstr "A_nnuler"
 
-#: src/sieve-editor-dialog.c:1187
+#: src/sieve-editor-dialog.c:1208
 msgid "_Reload"
 msgstr "_Recharger"
 
-#: src/sieve-editor-dialog.c:1244
+#: src/sieve-editor-dialog.c:1265
 msgid "Script saved and activated."
 msgstr "Script enregistré et activé."
 
-#: src/sieve-editor-dialog.c:1249
+#: src/sieve-editor-dialog.c:1270
 msgid ""
 "Save cancelled — the script may not have been fully transmitted; check on "
 "the server."
@@ -210,7 +210,7 @@ msgstr ""
 
 #. Connection lost / timed out while sending: the session is no
 #. * longer reliable. "Reload rules" will start a fresh connection.
-#: src/sieve-editor-dialog.c:1254
+#: src/sieve-editor-dialog.c:1275
 #, c-format
 msgid ""
 "Connection lost during save: %s. Use \"Reload rules\" to retry the "
@@ -219,46 +219,46 @@ msgstr ""
 "Connexion perdue pendant l'enregistrement : %s. Utilisez « Recharger les "
 "règles » pour retenter la connexion."
 
-#: src/sieve-editor-dialog.c:1265
+#: src/sieve-editor-dialog.c:1286
 #, c-format
 msgid "Save failed: %s"
 msgstr "Enregistrement échoué : %s"
 
-#: src/sieve-editor-dialog.c:1284
+#: src/sieve-editor-dialog.c:1305
 msgid "No session: use \"Reload rules\" to (re)connect first."
 msgstr ""
 "Aucune session : utilisez « Recharger les règles » pour (re)connecter "
 "d'abord."
 
-#: src/sieve-editor-dialog.c:1311
+#: src/sieve-editor-dialog.c:1332
 msgid "Saving… (\"Cancel\" to interrupt)"
 msgstr "Enregistrement en cours… (« Annuler » pour interrompre)"
 
-#: src/sieve-editor-dialog.c:1347
+#: src/sieve-editor-dialog.c:1368
 #, c-format
 msgid ""
 "Visual editing unavailable: %s. The script remains editable as raw text."
 msgstr ""
 "Édition visuelle indisponible : %s. Le script reste modifiable en texte brut."
 
-#: src/sieve-editor-dialog.c:1451
+#: src/sieve-editor-dialog.c:1472
 msgid "Auto-reconnecting to the last account…"
 msgstr "Reconnexion automatique au dernier compte…"
 
-#: src/sieve-editor-dialog.c:1455
+#: src/sieve-editor-dialog.c:1476
 msgid "Account ready: use \"Reload rules\" to open the session."
 msgstr ""
 "Compte prêt : utilisez « Recharger les règles » pour ouvrir la session."
 
-#: src/sieve-editor-dialog.c:1512
+#: src/sieve-editor-dialog.c:1533
 msgid "Connecting to the message's account…"
 msgstr "Connexion au compte du message…"
 
-#: src/sieve-editor-dialog.c:1530
+#: src/sieve-editor-dialog.c:1551
 msgid " Choose the relevant account, then \"Reload rules\"."
 msgstr " Choisissez le compte concerné, puis « Recharger les règles »."
 
-#: src/sieve-editor-dialog.c:1531
+#: src/sieve-editor-dialog.c:1552
 msgid ""
 " Configure this account's ManageSieve server in Edit → Accounts → \"Sieve "
 "Filters\" tab, then \"Reload rules\"."
@@ -266,15 +266,15 @@ msgstr ""
 " Configurez le serveur ManageSieve de ce compte dans Édition → Comptes → "
 "onglet « Filtres Sieve », puis « Recharger les règles »."
 
-#: src/sieve-editor-dialog.c:1613 src/sieve-config-page.c:1029
+#: src/sieve-editor-dialog.c:1634 src/sieve-config-page.c:1233
 msgid "Sieve Filters"
 msgstr "Filtres Sieve"
 
-#: src/sieve-editor-dialog.c:1628
+#: src/sieve-editor-dialog.c:1649
 msgid "Account:"
 msgstr "Compte :"
 
-#: src/sieve-editor-dialog.c:1633
+#: src/sieve-editor-dialog.c:1654
 msgid ""
 "Connection settings (server, port, encryption, username, password, auto-"
 "connect) are configured per account in Edit → Accounts, \"Sieve Filters\" "
@@ -284,7 +284,7 @@ msgstr ""
 "passe, connexion automatique) se configurent par compte dans Édition → "
 "Comptes, onglet « Filtres Sieve »."
 
-#: src/sieve-editor-dialog.c:1642
+#: src/sieve-editor-dialog.c:1663
 msgid ""
 "ManageSieve session status. There is no Connect button: the connection opens "
 "automatically on open (if the account is set up for it); otherwise use the "
@@ -295,33 +295,33 @@ msgstr ""
 "pour cela) ; sinon, utilisez « Recharger les règles » de l'éditeur visuel "
 "pour (re)connecter."
 
-#: src/sieve-editor-dialog.c:1668
+#: src/sieve-editor-dialog.c:1689
 msgid "Visual editor"
 msgstr "Éditeur visuel"
 
-#: src/sieve-editor-dialog.c:1674
+#: src/sieve-editor-dialog.c:1695
 msgid "Raw text"
 msgstr "Texte brut"
 
-#: src/sieve-editor-dialog.c:1708
+#: src/sieve-editor-dialog.c:1729
 msgid "Save"
 msgstr "Enregistrer"
 
 #. Takes the place of "Save": op_begin hides one and reveals the
 #. * other. no_show_all: gtk_widget_show_all must not reveal it at
 #. * startup.
-#: src/sieve-editor-dialog.c:1715
+#: src/sieve-editor-dialog.c:1736
 msgid "Cancel operation"
 msgstr "Annuler l'opération"
 
-#: src/sieve-editor-dialog.c:1724
+#: src/sieve-editor-dialog.c:1745
 msgid "Not connected."
 msgstr "Non connecté."
 
 #. Description shown at the top of the page (the "Description:" line, in
 #. * the style of the "Receiving Email" page). Used to be an intro
 #. * paragraph.
-#: src/sieve-config-page.c:30
+#: src/sieve-config-page.c:32
 msgid ""
 "Connection settings for this account's Sieve filter server (ManageSieve). If "
 "left blank, the receiving server's settings are used as defaults. Rule "
@@ -332,18 +332,18 @@ msgstr ""
 "utilisés par défaut. L'édition des règles se fait dans Édition -> Filtres "
 "Sieve."
 
-#: src/sieve-config-page.c:190
+#: src/sieve-config-page.c:200
 msgid "Automatic"
 msgstr "Automatique"
 
-#: src/sieve-config-page.c:357
+#: src/sieve-config-page.c:373
 msgid ""
 "Keyring entry cleared — enter a password (it will be stored on \"Apply\")."
 msgstr ""
 "Entrée du trousseau effacée — saisissez un mot de passe (il sera enregistré "
 "lors de l'« Application »)."
 
-#: src/sieve-config-page.c:536
+#: src/sieve-config-page.c:555
 msgid ""
 "Tries each authentication type with the server and strikes through those "
 "that do not work. Uses the settings above, without saving them."
@@ -351,43 +351,43 @@ msgstr ""
 "Essaie chaque type d'authentification auprès du serveur et barre ceux qui ne "
 "fonctionnent pas. Utilise les paramètres ci-dessus, sans les enregistrer."
 
-#: src/sieve-config-page.c:554 src/sieve-config-page.c:557
+#: src/sieve-config-page.c:573 src/sieve-config-page.c:576
 msgid "Please enter the server address first."
 msgstr "Veuillez d'abord saisir l'adresse du serveur."
 
-#: src/sieve-config-page.c:631 src/sieve-config-page.c:874
+#: src/sieve-config-page.c:651 src/sieve-config-page.c:895
 #, c-format
 msgid "Failed: %s"
 msgstr "Échec : %s"
 
-#: src/sieve-config-page.c:636
+#: src/sieve-config-page.c:656
 #, c-format
 msgid "Connection and authentication succeeded (SASL mechanism: %s)."
 msgstr "Connexion et authentification réussies (mécanisme SASL : %s)."
 
-#: src/sieve-config-page.c:641
+#: src/sieve-config-page.c:661
 msgid "Connection and authentication succeeded."
 msgstr "Connexion et authentification réussies."
 
-#: src/sieve-config-page.c:663
+#: src/sieve-config-page.c:683
 msgid "Testing..."
 msgstr "Test en cours…"
 
-#: src/sieve-config-page.c:900
+#: src/sieve-config-page.c:921
 #, c-format
 msgid "Working: %s."
 msgstr "Fonctionnent : %s."
 
-#: src/sieve-config-page.c:902
+#: src/sieve-config-page.c:923
 msgid "No type could be verified."
 msgstr "Aucun type n'a pu être vérifié."
 
-#: src/sieve-config-page.c:904
+#: src/sieve-config-page.c:925
 #, c-format
 msgid " Not working (struck through): %s."
 msgstr " Ne fonctionnent pas (barrés) : %s."
 
-#: src/sieve-config-page.c:908
+#: src/sieve-config-page.c:929
 msgid ""
 "The server rejected the credentials, so the remaining password types were "
 "not tried (to avoid locking the account)."
@@ -395,68 +395,105 @@ msgstr ""
 "Le serveur a refusé les identifiants : les autres types à mot de passe n'ont "
 "pas été essayés (pour éviter de verrouiller le compte)."
 
-#: src/sieve-config-page.c:912
+#: src/sieve-config-page.c:933
 msgid "Some types could not be tried: no password or token available."
 msgstr ""
 "Certains types n'ont pas pu être essayés : aucun mot de passe ni jeton "
 "disponible."
 
-#: src/sieve-config-page.c:919
+#: src/sieve-config-page.c:940
 msgid "The selected type does not work with this server."
 msgstr "Le type sélectionné ne fonctionne pas avec ce serveur."
 
-#: src/sieve-config-page.c:942
+#: src/sieve-config-page.c:963
 msgid "Checking supported types..."
 msgstr "Vérification des types pris en charge…"
 
-#: src/sieve-config-page.c:1113
+#: src/sieve-config-page.c:1059
+#, c-format
+msgid "Detection failed: %s"
+msgstr "Détection échouée : %s"
+
+#: src/sieve-config-page.c:1066
+msgid "Detected: '/' (same as the model's default -- nothing to translate)."
+msgstr ""
+"Détecté : « / » (identique au comportement par défaut du modèle — rien à "
+"convertir)."
+
+#: src/sieve-config-page.c:1068
+#, c-format
+msgid "Detected: '%s'."
+msgstr "Détecté : « %s »."
+
+#: src/sieve-config-page.c:1093
+msgid "Not available for this account."
+msgstr "Non disponible pour ce compte."
+
+#: src/sieve-config-page.c:1101
+msgid "Could not access this account's IMAP settings."
+msgstr "Impossible d'accéder aux paramètres IMAP de ce compte."
+
+#: src/sieve-config-page.c:1111
+msgid "This account's receiving server has no network settings to read."
+msgstr ""
+"Le serveur de réception de ce compte n'a pas de paramètres réseau à lire."
+
+#: src/sieve-config-page.c:1126
+msgid "This account has no IMAP server configured."
+msgstr "Ce compte n'a pas de serveur IMAP configuré."
+
+#: src/sieve-config-page.c:1140
+msgid "Detecting..."
+msgstr "Détection en cours…"
+
+#: src/sieve-config-page.c:1319
 msgid "Server Type:"
 msgstr "Type de serveur :"
 
-#: src/sieve-config-page.c:1119
+#: src/sieve-config-page.c:1325
 msgid "Description:"
 msgstr "Description :"
 
-#: src/sieve-config-page.c:1148
+#: src/sieve-config-page.c:1354
 msgid "STARTTLS after connecting"
 msgstr "STARTTLS après connexion"
 
-#: src/sieve-config-page.c:1150
+#: src/sieve-config-page.c:1356
 msgid "TLS on a dedicated port"
 msgstr "TLS sur un port dédié"
 
-#: src/sieve-config-page.c:1155
+#: src/sieve-config-page.c:1361
 msgid "Check Supported Types"
 msgstr "Vérifier les types pris en charge"
 
-#: src/sieve-config-page.c:1161
+#: src/sieve-config-page.c:1367
 msgid "same as Server, above"
 msgstr "identique à « Serveur », ci-dessus"
 
-#: src/sieve-config-page.c:1164
+#: src/sieve-config-page.c:1370
 msgid ""
 "Only needed with GSSAPI, and only if the server address above is a DNS alias "
 "(CNAME): the hostname used to build the GSSAPI service principal (\"sieve/"
 "<hostname>\"). Leave empty to use the server address."
 msgstr ""
-"Utile uniquement avec GSSAPI, et seulement si l'adresse du serveur "
-"ci-dessus est un alias DNS (CNAME) : nom d'hôte utilisé pour construire "
-"le principal de service GSSAPI (« sieve/<hôte> »). Laisser vide pour "
-"utiliser l'adresse du serveur."
+"Utile uniquement avec GSSAPI, et seulement si l'adresse du serveur ci-dessus "
+"est un alias DNS (CNAME) : nom d'hôte utilisé pour construire le principal "
+"de service GSSAPI (« sieve/<hôte> »). Laisser vide pour utiliser l'adresse "
+"du serveur."
 
-#: src/sieve-config-page.c:1169
+#: src/sieve-config-page.c:1375
 msgid "Password:"
 msgstr "Mot de passe :"
 
-#: src/sieve-config-page.c:1175
+#: src/sieve-config-page.c:1381
 msgid "new password"
 msgstr "nouveau mot de passe"
 
-#: src/sieve-config-page.c:1182
+#: src/sieve-config-page.c:1388
 msgid "Forget Password"
 msgstr "Oublier le mot de passe"
 
-#: src/sieve-config-page.c:1186
+#: src/sieve-config-page.c:1392
 msgid ""
 "Clears the password stored in the keyring for this account (no effect if "
 "there is none) and shows the field to enter a new one."
@@ -464,56 +501,97 @@ msgstr ""
 "Efface le mot de passe stocké dans le trousseau pour ce compte (sans effet "
 "s'il n'y en a pas) et affiche le champ pour en saisir un nouveau."
 
-#: src/sieve-config-page.c:1193
+#: src/sieve-config-page.c:1399
 msgid "Connect automatically on open"
 msgstr "Se connecter automatiquement à l'ouverture"
 
-#: src/sieve-config-page.c:1200
+#: src/sieve-config-page.c:1408
+msgid ""
+"The character this account's real IMAP server uses between folder path "
+"segments (Dovecot with Maildir++ often uses '.'). Left empty, '/' is "
+"assumed. A fileinto action for a nested folder is translated to this "
+"separator before being sent to the server, and back to '/' when read -- "
+"without this, the server may reject the filter (\"Name must not have '/' "
+"characters\")."
+msgstr ""
+"Le caractère utilisé par le vrai serveur IMAP de ce compte entre les "
+"segments d'un chemin de dossier (Dovecot avec Maildir++ utilise souvent "
+"« . »). Laissé vide, « / » est supposé. Une action fileinto vers un dossier "
+"imbriqué est convertie vers ce séparateur avant l'envoi au serveur, puis "
+"reconvertie en « / » à la lecture — sans quoi le serveur peut rejeter le "
+"filtre (« Name must not have '/' characters »)."
+
+#: src/sieve-config-page.c:1416
+msgid "Detect Automatically"
+msgstr "Détecter automatiquement"
+
+#: src/sieve-config-page.c:1419
+msgid ""
+"Opens a brief IMAP connection to this account's mail server (same host/port/"
+"encryption/password as the receiving server) to ask it directly. Not "
+"available for OAuth2 accounts -- enter the separator manually for those."
+msgstr ""
+"Ouvre une brève connexion IMAP au serveur de messagerie de ce compte (même "
+"hôte/port/chiffrement/mot de passe que le serveur de réception) pour le "
+"lui demander directement. Non disponible pour les comptes OAuth2 — saisir "
+"le séparateur manuellement dans ce cas."
+
+#: src/sieve-config-page.c:1434
 msgid "OAuth2: access token managed by Evolution, no password to enter."
 msgstr ""
 "OAuth2 : jeton d'accès géré par Evolution, aucun mot de passe à saisir."
 
 #. "Configuration" section: server + port, then "Connect
 #. * automatically" right below the server field.
-#: src/sieve-config-page.c:1206
+#: src/sieve-config-page.c:1440
 msgid "Configuration"
 msgstr "Configuration"
 
-#: src/sieve-config-page.c:1209
+#: src/sieve-config-page.c:1443
 msgid "Server:"
 msgstr "Serveur :"
 
-#: src/sieve-config-page.c:1210
+#: src/sieve-config-page.c:1444
 msgid "Port:"
 msgstr "Port :"
 
 #. "Security" section.
-#: src/sieve-config-page.c:1218
+#: src/sieve-config-page.c:1452
 msgid "Security"
 msgstr "Sécurité"
 
-#: src/sieve-config-page.c:1220
+#: src/sieve-config-page.c:1454
 msgid "Encryption method:"
 msgstr "Méthode de chiffrement :"
+
+#. "Folders" section: the account's real IMAP hierarchy separator
+#. * (issue #3), with an automatic detection button.
+#: src/sieve-config-page.c:1459
+msgid "Folders"
+msgstr "Dossiers"
+
+#: src/sieve-config-page.c:1468
+msgid "Folder separator:"
+msgstr "Séparateur de dossiers :"
 
 #. "Authentication" section: login, then — on the same line — the
 #. * "Forget Password" button (by default) OR the password field
 #. * preceded by its "Password:" label (after clicking "Forget").
 #. * Everything aligned in column 1 like the login; status line
 #. * below.
-#: src/sieve-config-page.c:1228
+#: src/sieve-config-page.c:1477
 msgid "Authentication"
 msgstr "Authentification"
 
-#: src/sieve-config-page.c:1237
+#: src/sieve-config-page.c:1486
 msgid "Type:"
 msgstr "Type :"
 
-#: src/sieve-config-page.c:1239
+#: src/sieve-config-page.c:1488
 msgid "Username:"
 msgstr "Identifiant :"
 
-#: src/sieve-config-page.c:1250
+#: src/sieve-config-page.c:1499
 msgid "Kerberos hostname:"
 msgstr "Nom d'hôte Kerberos :"
 
@@ -527,15 +605,15 @@ msgstr "Nom d'hôte Kerberos :"
 #. * line's height; without this compensation the spacing before
 #. * "Connectivity" looks larger than that of the "Security" /
 #. * "Authentication" sections.
-#: src/sieve-config-page.c:1263
+#: src/sieve-config-page.c:1512
 msgid "Connectivity"
 msgstr "Connectivité"
 
-#: src/sieve-config-page.c:1265
+#: src/sieve-config-page.c:1514
 msgid "Test"
 msgstr "Tester"
 
-#: src/sieve-config-page.c:1269
+#: src/sieve-config-page.c:1518
 msgid ""
 "Attempts a connection and authentication to the ManageSieve server with the "
 "settings above, without saving them."

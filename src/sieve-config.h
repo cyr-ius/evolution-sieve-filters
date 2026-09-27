@@ -37,6 +37,13 @@ typedef struct {
                              * ManageSieve host that's a DNS alias (CNAME)
                              * not covered by the server's Kerberos keytab
                              * (issue #2) */
+  gchar    folder_separator; /* the account's REAL IMAP hierarchy
+                              * separator (often '.' for Dovecot/
+                              * Maildir++, sometimes '/'); 0 = not set,
+                              * defaults to '/' (Camel's own canonical
+                              * separator, a no-op translation) --
+                              * see sieve_rule_set_translate_folder_separator()
+                              * in sieve-model.h (issue #3) */
   gboolean remember_password; /* vestige: always true now (the keyring
                                * is the default mode; removal goes
                                * through the "Forget" button). Key kept
@@ -45,6 +52,16 @@ typedef struct {
 
 /* Frees a SieveConfig (NULL tolerated). */
 void sieve_config_free (SieveConfig *config);
+
+/* config->folder_separator if set, '/' otherwise (the default: no
+ * translation). Convenience so callers don't each repeat the same
+ * "0 => '/'" fallback. */
+static inline gchar
+sieve_config_get_effective_folder_separator (const SieveConfig *config)
+{
+  return (config != NULL && config->folder_separator != '\0')
+           ? config->folder_separator : '/';
+}
 
 /* Loads the connection profile for the given account (account_uid
  * NULL / "" => "manual" profile). Never returns NULL: a missing

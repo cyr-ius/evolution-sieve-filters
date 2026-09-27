@@ -67,6 +67,16 @@ RUN apt-get update \
       dovecot-managesieved \
       dovecot-sieve \
       openssl \
+      # dovecot-imapd: the actual /usr/lib/dovecot/imap executable is a
+      # SEPARATE package from dovecot-core (like dovecot-gssapi below).
+      # Needed only so tests/test-imap-probe.c can exercise
+      # sieve-imap-probe.c (folder hierarchy separator discovery, issue
+      # #3) against a real server; tests/dovecot/run.sh already leaves
+      # "imap" out of protocols= (and the imap-login service block out
+      # entirely) without it, so the rest of the fixture stays usable
+      # either way -- see run.sh's comment ("service(imap) access(...)
+      # failed" is otherwise FATAL for the whole Dovecot instance). ---
+      dovecot-imapd \
       # dovecot-gssapi: the SASL GSSAPI mechanism itself is a SEPARATE
       # plugin package, NOT part of dovecot-core (which only carries the
       # mechanism's name in a config-name table, enough to make

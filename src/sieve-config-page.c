@@ -9,6 +9,7 @@
 #include <gtk/gtk.h>
 #include <libedataserver/libedataserver.h>
 #include <libemail-engine/libemail-engine.h>   /* EMailSession */
+#include <camel/camel.h>                       /* CamelNetworkSettings */
 
 #include <e-util/e-util.h>                 /* EExtension */
 #include <mail/e-mail-config-notebook.h>
@@ -16,6 +17,7 @@
 
 #include "sieve-account.h"
 #include "sieve-config.h"
+#include "sieve-imap-probe.h"
 #include "sieve-managesieve-client.h"
 #include "sieve-sasl.h"
 #include "sieve-secret.h"
@@ -65,6 +67,9 @@ struct _SieveConfigPage {
 
   ESource         *account_source;  /* ref; its UID is the sieve-config key */
   ESourceRegistry *registry;        /* ref; for OAuth2 detection */
+  EMailSession    *mail_session;    /* ref; the account's real IMAP host/port/
+                                    * security (CamelNetworkSettings), for
+                                    * "Detect automatically" (issue #3) */
   GtkWidget *host_entry;
   GtkWidget *port_spin;
   GtkWidget *user_entry;
@@ -85,6 +90,10 @@ struct _SieveConfigPage {
                                     * hostname override (empty = use
                                     * "Server:" above); see issue #2 */
   GtkWidget *auto_connect_check;    /* "Connect automatically" */
+  GtkWidget *folder_separator_entry;   /* the account's real IMAP hierarchy
+                                        * separator (empty = '/'); issue #3 */
+  GtkWidget *detect_separator_button;  /* "Detect Automatically" */
+  GtkWidget *detect_separator_status;  /* result line below the field */
   GtkWidget *test_button;           /* "Connectivity" section: "Test" button */
   GtkWidget *test_status;           /* result line below the button */
   GCancellable *test_cancellable;   /* cancels the running test / type check
@@ -116,6 +125,7 @@ sieve_config_page_dispose (GObject *object)
 
   g_clear_object (&self->account_source);
   g_clear_object (&self->registry);
+  g_clear_object (&self->mail_session);
 
   G_OBJECT_CLASS (sieve_config_page_parent_class)->dispose (object);
 }
@@ -248,6 +258,12 @@ sieve_config_page_load_fields (SieveConfigPage *self)
   auth_type_select (self, cfg->auth_mechanism);
   gtk_entry_set_text (GTK_ENTRY (self->gssapi_hostname_entry),
                       cfg->gssapi_hostname != NULL ? cfg->gssapi_hostname : "");
+  {
+    gchar sep_text[2] = { cfg->folder_separator, '\0' };
+    gtk_entry_set_text (GTK_ENTRY (self->folder_separator_entry),
+                        cfg->folder_separator != '\0' ? sep_text : "");
+  }
+  gtk_label_set_text (GTK_LABEL (self->detect_separator_status), "");
 
   /* Default state: password field (and its label) hidden, "Forget"
    * button visible. Connecting takes the password from the keyring;
@@ -514,13 +530,16 @@ test_conn_task_run (GTask *task, gpointer source_object, gpointer task_data,
     g_task_return_pointer (task, mech, g_free);
 }
 
-/* Both network buttons are disabled while one of the two runs. */
+/* All network buttons are disabled while one of them runs. */
 static void
 set_network_busy (SieveConfigPage *self, gboolean busy)
 {
   self->test_in_flight = busy;
   gtk_widget_set_sensitive (self->test_button, !busy);
   gtk_widget_set_sensitive (self->check_types_button, !busy);
+  gtk_widget_set_sensitive (self->detect_separator_button,
+                            !busy && !self->account_is_oauth2
+                              && self->mail_session != NULL);
 }
 
 /* The type check has no result line of its own: its outcome goes into
@@ -588,9 +607,10 @@ conn_input_from_widgets (SieveConfigPage *self, gboolean for_check)
   return in;
 }
 
-/* Starts `run` on a worker thread; `done` gets a reference on the page. */
+/* Starts `run` on a worker thread; `done` gets a reference on the page.
+ * `in` is freed with `in_free` once the task completes. */
 static void
-network_task_start (SieveConfigPage *self, TestConnInput *in,
+network_task_start (SieveConfigPage *self, gpointer in, GDestroyNotify in_free,
                     GAsyncReadyCallback done, GTaskThreadFunc run)
 {
   GTask *task;
@@ -598,7 +618,7 @@ network_task_start (SieveConfigPage *self, TestConnInput *in,
   set_network_busy (self, TRUE);
   self->test_cancellable = g_cancellable_new ();
   task = g_task_new (NULL, self->test_cancellable, done, g_object_ref (self));
-  g_task_set_task_data (task, in, (GDestroyNotify) test_conn_input_free);
+  g_task_set_task_data (task, in, in_free);
   g_task_run_in_thread (task, run);
   g_object_unref (task);
 }
@@ -661,7 +681,8 @@ sieve_config_page_test_clicked (GtkButton *button, gpointer user_data)
     return;
 
   gtk_label_set_text (GTK_LABEL (self->test_status), _("Testing..."));
-  network_task_start (self, in, test_conn_done, test_conn_task_run);
+  network_task_start (self, in, (GDestroyNotify) test_conn_input_free,
+                     test_conn_done, test_conn_task_run);
 }
 
 /* --- "Check Supported Types" button ----------------------------------- *
@@ -940,7 +961,185 @@ sieve_config_page_check_types_clicked (GtkButton *button, gpointer user_data)
     return;
 
   check_types_set_status (self, _("Checking supported types..."));
-  network_task_start (self, in, check_types_done, check_types_task_run);
+  network_task_start (self, in, (GDestroyNotify) test_conn_input_free,
+                     check_types_done, check_types_task_run);
+}
+
+/* --- "Detect Automatically" (folder separator, issue #3) -------------- *
+ *
+ * There is no public Camel/EDS API exposing the account's real IMAP
+ * hierarchy separator (see sieve-imap-probe.h), so this opens a brief
+ * IMAP connection of its own: same host/port/encryption as the
+ * account's actual receiving server (CamelNetworkSettings, read from
+ * the mail session -- NOT the ManageSieve settings above, which are a
+ * distinct service on their own host/port), same IMAP password as
+ * already resolved by EDS. Not offered for OAuth2 accounts (no
+ * password to hand a plain LOGIN) -- the button is kept insensitive
+ * for those (see set_network_busy()). */
+typedef struct {
+  gchar   *host;
+  guint16  port;
+  gboolean implicit_tls;
+  gchar   *user;
+  gchar   *account_uid;
+  ESourceRegistry *registry;
+} DetectSeparatorInput;
+
+static void
+detect_separator_input_free (DetectSeparatorInput *in)
+{
+  if (in == NULL)
+    return;
+  g_free (in->host);
+  g_free (in->user);
+  g_free (in->account_uid);
+  g_clear_object (&in->registry);
+  g_free (in);
+}
+
+static void
+detect_separator_task_run (GTask *task, gpointer source_object, gpointer task_data,
+                          GCancellable *cancellable)
+{
+  DetectSeparatorInput *in = task_data;
+  gchar *password;
+  gchar separator = '\0';
+  GError *error = NULL;
+  gchar *result;
+
+  (void) source_object;
+
+  password = sieve_account_dup_stored_password (in->registry, in->account_uid,
+                                                cancellable, &error);
+  if (password == NULL) {
+    if (error == NULL)
+      g_set_error_literal (&error, SIEVE_IMAP_PROBE_ERROR, SIEVE_IMAP_PROBE_ERROR_LOGIN,
+                           "No password on file for this account (EDS keyring "
+                           "empty or locked)");
+    g_task_return_error (task, error);
+    return;
+  }
+
+  if (!sieve_imap_probe_hierarchy_separator_sync (
+        in->host, in->port, in->implicit_tls, in->user, password,
+        SIEVE_IMAP_PROBE_DEFAULT_TIMEOUT_SECONDS, cancellable, &separator, &error)) {
+    wipe_free (&password);
+    g_task_return_error (task, error);
+    return;
+  }
+
+  wipe_free (&password);
+  result = g_new (gchar, 1);
+  *result = separator;
+  g_task_return_pointer (task, result, g_free);
+}
+
+static void
+detect_separator_done (GObject *source, GAsyncResult *res, gpointer user_data)
+{
+  SieveConfigPage *self = SIEVE_CONFIG_PAGE (user_data);
+  GError *error = NULL;
+  gchar *result;
+
+  (void) source;
+
+  result = g_task_propagate_pointer (G_TASK (res), &error);
+
+  if (g_cancellable_is_cancelled (g_task_get_cancellable (G_TASK (res)))) {
+    g_clear_error (&error);
+    g_free (result);
+    g_object_unref (self);
+    return;
+  }
+
+  set_network_busy (self, FALSE);
+  g_clear_object (&self->test_cancellable);
+
+  if (error != NULL) {
+    g_autofree gchar *msg = g_strdup_printf (_("Detection failed: %s"), error->message);
+    gtk_label_set_text (GTK_LABEL (self->detect_separator_status), msg);
+    g_error_free (error);
+  } else {
+    gchar sep_text[2] = { *result, '\0' };
+    g_autofree gchar *msg =
+      (*result == '/')
+        ? g_strdup (_("Detected: '/' (same as the model's default -- "
+                      "nothing to translate)."))
+        : g_strdup_printf (_("Detected: '%s'."), sep_text);
+
+    gtk_entry_set_text (GTK_ENTRY (self->folder_separator_entry), sep_text);
+    gtk_label_set_text (GTK_LABEL (self->detect_separator_status), msg);
+  }
+
+  g_free (result);
+  g_object_unref (self);   /* ref taken when launching the task */
+}
+
+static void
+sieve_config_page_detect_separator_clicked (GtkButton *button, gpointer user_data)
+{
+  SieveConfigPage *self = SIEVE_CONFIG_PAGE (user_data);
+  CamelService *service;
+  CamelSettings *settings;
+  DetectSeparatorInput *in;
+
+  (void) button;
+
+  if (self->test_in_flight)
+    return;
+
+  if (self->account_is_oauth2 || self->mail_session == NULL) {
+    gtk_label_set_text (GTK_LABEL (self->detect_separator_status),
+                        _("Not available for this account."));
+    return;
+  }
+
+  service = camel_session_ref_service (CAMEL_SESSION (self->mail_session),
+                                       e_source_get_uid (self->account_source));
+  if (service == NULL) {
+    gtk_label_set_text (GTK_LABEL (self->detect_separator_status),
+                        _("Could not access this account's IMAP settings."));
+    return;
+  }
+
+  settings = camel_service_ref_settings (CAMEL_SERVICE (service));
+  g_object_unref (service);
+
+  if (!CAMEL_IS_NETWORK_SETTINGS (settings)) {
+    g_clear_object (&settings);
+    gtk_label_set_text (GTK_LABEL (self->detect_separator_status),
+                        _("This account's receiving server has no network "
+                          "settings to read."));
+    return;
+  }
+
+  {
+    CamelNetworkSettings *ns = CAMEL_NETWORK_SETTINGS (settings);
+    const gchar *host = camel_network_settings_get_host (ns);
+    const gchar *user = camel_network_settings_get_user (ns);
+    guint16 port = camel_network_settings_get_port (ns);
+    CamelNetworkSecurityMethod sec = camel_network_settings_get_security_method (ns);
+
+    if (host == NULL || *host == '\0') {
+      g_object_unref (settings);
+      gtk_label_set_text (GTK_LABEL (self->detect_separator_status),
+                          _("This account has no IMAP server configured."));
+      return;
+    }
+
+    in = g_new0 (DetectSeparatorInput, 1);
+    in->host = g_strdup (host);
+    in->user = g_strdup (user != NULL ? user : "");
+    in->implicit_tls = (sec == CAMEL_NETWORK_SECURITY_METHOD_SSL_ON_ALTERNATE_PORT);
+    in->port = (port != 0) ? port : (in->implicit_tls ? 993 : 143);
+    in->account_uid = g_strdup (e_source_get_uid (self->account_source));
+    in->registry = (self->registry != NULL) ? g_object_ref (self->registry) : NULL;
+  }
+  g_object_unref (settings);
+
+  gtk_label_set_text (GTK_LABEL (self->detect_separator_status), _("Detecting..."));
+  network_task_start (self, in, (GDestroyNotify) detect_separator_input_free,
+                      detect_separator_done, detect_separator_task_run);
 }
 
 /* Purely local settings: nothing to write to the ESource
@@ -982,6 +1181,11 @@ sieve_config_page_commit_changes (EMailConfigPage *page,
     g_free (cfg->gssapi_hostname);
     cfg->gssapi_hostname = (gssapi_hostname != NULL && *gssapi_hostname != '\0')
                              ? g_strdup (gssapi_hostname) : NULL;
+  }
+  {
+    const gchar *sep =
+      gtk_entry_get_text (GTK_ENTRY (self->folder_separator_entry));
+    cfg->folder_separator = (sep != NULL && *sep != '\0') ? sep[0] : '\0';
   }
   /* The keyring is now the default mode (no more "Remember" checkbox:
    * any entered password is stored, the "Forget" button is what
@@ -1084,7 +1288,8 @@ add_field (GtkGrid *grid, gint row, const gchar *label_text,
 }
 
 static GtkWidget *
-sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
+sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
+                       EMailSession *session)
 {
   SieveConfigPage *self;
   GtkWidget *content;
@@ -1095,6 +1300,7 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
 
   self = g_object_new (SIEVE_TYPE_CONFIG_PAGE, NULL);
   self->account_source = g_object_ref (account_source);
+  self->mail_session = (session != NULL) ? g_object_ref (session) : NULL;
   self->registry = (registry != NULL) ? g_object_ref (registry) : NULL;
   self->account_is_oauth2 =
     sieve_account_source_uses_oauth2 (registry, account_source);
@@ -1192,6 +1398,34 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
   self->auto_connect_check =
     gtk_check_button_new_with_label (_("Connect automatically on open"));
 
+  self->folder_separator_entry = gtk_entry_new ();
+  gtk_entry_set_max_length (GTK_ENTRY (self->folder_separator_entry), 1);
+  gtk_entry_set_width_chars (GTK_ENTRY (self->folder_separator_entry), 2);
+  gtk_entry_set_placeholder_text (GTK_ENTRY (self->folder_separator_entry), "/");
+  gtk_widget_set_halign (self->folder_separator_entry, GTK_ALIGN_START);
+  gtk_widget_set_tooltip_text (
+    self->folder_separator_entry,
+    _("The character this account's real IMAP server uses between "
+      "folder path segments (Dovecot with Maildir++ often uses '.'). "
+      "Left empty, '/' is assumed. A fileinto action for a nested "
+      "folder is translated to this separator before being sent to "
+      "the server, and back to '/' when read -- without this, the "
+      "server may reject the filter (\"Name must not have '/' "
+      "characters\")."));
+  self->detect_separator_button =
+    gtk_button_new_with_label (_("Detect Automatically"));
+  gtk_widget_set_tooltip_text (
+    self->detect_separator_button,
+    _("Opens a brief IMAP connection to this account's mail server "
+      "(same host/port/encryption/password as the receiving server) "
+      "to ask it directly. Not available for OAuth2 accounts -- enter "
+      "the separator manually for those."));
+  self->detect_separator_status = gtk_label_new ("");
+  gtk_label_set_xalign (GTK_LABEL (self->detect_separator_status), 0.0);
+  gtk_label_set_line_wrap (GTK_LABEL (self->detect_separator_status), TRUE);
+  if (self->account_is_oauth2 || self->mail_session == NULL)
+    gtk_widget_set_sensitive (self->detect_separator_button, FALSE);
+
   if (self->account_is_oauth2) {
     /* Token managed by Evolution: no password to enter or store. Hide
      * the "Forget" button and explain it in the status line. */
@@ -1219,6 +1453,21 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
   grid = add_section_grid (GTK_BOX (content));
   add_field (GTK_GRID (grid), 0, _("Encryption method:"),
              self->encryption_combo, 1);
+
+  /* "Folders" section: the account's real IMAP hierarchy separator
+   * (issue #3), with an automatic detection button. */
+  add_section_header (GTK_BOX (content), _("Folders"), 0);
+  grid = add_section_grid (GTK_BOX (content));
+  {
+    GtkWidget *sep_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+
+    gtk_box_pack_start (GTK_BOX (sep_box), self->folder_separator_entry,
+                        FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (sep_box), self->detect_separator_button,
+                        FALSE, FALSE, 0);
+    add_field (GTK_GRID (grid), 0, _("Folder separator:"), sep_box, 3);
+  }
+  gtk_grid_attach (GTK_GRID (grid), self->detect_separator_status, 1, 1, 3, 1);
 
   /* "Authentication" section: login, then — on the same line — the
    * "Forget Password" button (by default) OR the password field
@@ -1293,12 +1542,16 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
                             G_CALLBACK (e_mail_config_page_changed), self);
   g_signal_connect_swapped (self->auto_connect_check, "toggled",
                             G_CALLBACK (e_mail_config_page_changed), self);
+  g_signal_connect_swapped (self->folder_separator_entry, "changed",
+                            G_CALLBACK (e_mail_config_page_changed), self);
   g_signal_connect (self->forget_button, "clicked",
                     G_CALLBACK (sieve_config_page_forget_password), self);
   g_signal_connect (self->check_types_button, "clicked",
                     G_CALLBACK (sieve_config_page_check_types_clicked), self);
   g_signal_connect (self->test_button, "clicked",
                     G_CALLBACK (sieve_config_page_test_clicked), self);
+  g_signal_connect (self->detect_separator_button, "clicked",
+                    G_CALLBACK (sieve_config_page_detect_separator_clicked), self);
 
   gtk_widget_show_all (GTK_WIDGET (self));
   return GTK_WIDGET (self);
@@ -1365,7 +1618,7 @@ sieve_config_notebook_extension_constructed (GObject *object)
   session = e_mail_config_notebook_get_session (notebook);
   registry = (session != NULL) ? e_mail_session_get_registry (session) : NULL;
 
-  page = sieve_config_page_new (account_source, registry);
+  page = sieve_config_page_new (account_source, registry, session);
   e_mail_config_notebook_add_page (notebook, E_MAIL_CONFIG_PAGE (page));
 }
 

@@ -2,6 +2,10 @@ test_managesieve = executable('test-managesieve',
   'test-managesieve.c',
   dependencies: [glib_dep, gio_dep, sieve_client_dep])
 
+test_imap_probe = executable('test-imap-probe',
+  'test-imap-probe.c',
+  dependencies: [glib_dep, gio_dep, sieve_imap_probe_dep])
+
 # Unit tests for the SASL layer (no network): run by `meson test`.
 test_sasl = executable('test-sasl',
   'test-sasl.c',
@@ -54,7 +58,7 @@ run_target('dovecot',
 
 run_target('dovecot-smoke',
   command: [files('dovecot/smoke.sh')],
-  depends: test_managesieve)
+  depends: [test_managesieve, test_imap_probe])
 
 # Disposable keyring (gnome-keyring under dbus-run-session) + real
 # store/lookup/clear round-trip. See tests/secret/README.md.

@@ -1320,3 +1320,35 @@ out:
     g_clear_error (&local);
   return result;
 }
+
+void
+sieve_rule_set_translate_folder_separator (SieveRuleSet *set,
+                                           gchar         real_separator,
+                                           gboolean      to_real)
+{
+  g_return_if_fail (set != NULL);
+
+  if (real_separator == '/' || real_separator == '\0')
+    return;
+
+  for (guint i = 0; i < set->rules->len; i++) {
+    SieveRule *rule = g_ptr_array_index (set->rules, i);
+
+    if (rule->opaque)
+      continue;
+
+    for (guint j = 0; j < rule->actions->len; j++) {
+      SieveAction *action = g_ptr_array_index (rule->actions, j);
+
+      if (action->type != SIEVE_ACTION_FILEINTO || action->arg == NULL)
+        continue;
+
+      if (to_real) {
+        g_strdelimit (action->arg, "/", real_separator);
+      } else {
+        gchar from[2] = { real_separator, '\0' };
+        g_strdelimit (action->arg, from, '/');
+      }
+    }
+  }
+}

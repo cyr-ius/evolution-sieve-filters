@@ -56,7 +56,10 @@ tests/dovecot/smoke.sh                    # end-to-end: brings up Dovecot,
                                           # then SASL GSSAPI against a
                                           # disposable KDC (skipped cleanly
                                           # if krb5-kdc/krb5-user or the
-                                          # dovecot-gssapi plugin are absent)
+                                          # dovecot-gssapi plugin are absent),
+                                          # then the IMAP hierarchy separator
+                                          # probe (issue #3 — skipped cleanly
+                                          # if dovecot-imapd is absent)
 # or: meson compile -C build dovecot-smoke
 
 tests/dovecot/run.sh --daemon             # persistent server
@@ -145,6 +148,8 @@ Against a real server: `test-managesieve --host … --user … [--starttls] [--p
 | Dovecot: `auth: Fatal: Unknown authentication mechanism 'GSSAPI'`, then the whole auth service throttle-loops (breaks PLAIN/LOGIN too) | Debian's `dovecot-core` does **not** actually build in GSSAPI — despite `gssapi` appearing as a string inside `/usr/lib/dovecot/auth` (config-name table, not an implementation) and `doveconf` silently accepting `auth_mechanisms = ... gssapi`. The real mechanism is the separate `dovecot-gssapi` package (`/usr/lib/dovecot/modules/auth/libmech_gssapi.so`). Listing an unknown mechanism name in `auth_mechanisms` is **fatal for the whole auth process**, not just for that mechanism — `tests/dovecot/run.sh` therefore only appends `gssapi` to `auth_mechanisms` (via the `@GSSAPI_MECH@` template token in `dovecot.conf.in`) when that `.so` is actually present, never unconditionally. |
 | Dovecot GSSAPI login succeeds but then `passwd-file: unknown user` / `Authenticated user not found from userdb` | Dovecot's GSSAPI mechanism authenticates as `user@REALM` (the Kerberos principal), but the fixture's passwd-file only knows plain `testuser`. Fix: `auth_username_format = %{user|username|lower}` in `dovecot.conf.in` (the `username` filter strips the `@domain` part) — applied unconditionally, harmless for the other mechanisms since their usernames never carry an `@`. |
 | Dovecot GSSAPI: `While acquiring service credentials: ... Permission denied` | the auth worker reading `auth_krb5_keytab` does not run as root even though the master process is started via `sudo` (see run.sh) — the keytab must be world-readable. `kdc.sh` `chmod 644`s the keytab it generates; it's a disposable test-only key for a throwaway realm, so this is fine here (would not be, for a real deployment's keytab). |
+| Dovecot: `Fatal: service(imap) access(/usr/lib/dovecot/imap) failed: No such file or directory` | same story as the GSSAPI mechanism above, but for a whole protocol: `dovecot-imapd` (the actual `/usr/lib/dovecot/imap` executable, needed by `tests/test-imap-probe.c` / `sieve-imap-probe.c`, issue #3) is a **separate package** from `dovecot-core`. Listing `imap` in `protocols` when the binary is missing is **fatal at startup for the whole instance**, not just IMAP — `run.sh` therefore only adds `imap` to `protocols` (via `@IMAP_PROTOCOL_NAME@`) and keeps the `service imap-login { ... }` block (stripped between the `IMAP_BLOCK_BEGIN`/`IMAP_BLOCK_END` markers otherwise) when `/usr/lib/dovecot/imap` actually exists; `smoke.sh`'s IMAP probe battery is skipped the same way. Already in the Dockerfile (`dovecot-imapd`), but a devcontainer built before this fix needs `sudo apt-get install dovecot-imapd`. |
+| Evolution's own account editor, IMAP account: sends `fileinto "INBOX/Sub"` but Dovecot rejects it (`Name must not have '/' characters`) if its own namespace separator isn't `/` (often `.` for Maildir++) | issue #3 (https://github.com/cyr-ius/evolution-sieve-filters/issues/3). Camel's `CamelFolderInfo->full_name` is **always** `/`-normalized internally (confirmed against evolution-data-server's IMAPX provider: `camel_imapx_mailbox_to_folder_path()`), regardless of the server's real separator — and that real separator is **not exposed by any public Camel/EDS API** (`camel-imapx-store.h` / `camel-imapx-settings.h` are deliberately not installed as public headers; verified against the upstream `CMakeLists.txt`). Fix: `sieve_rule_set_translate_folder_separator()` (`src/sieve-model.[ch]`) translates fileinto paths between `/` and the account's real separator at exactly two points in `sieve-editor-dialog.c` (`sync_visual_to_text` / `sync_text_to_visual` — the visual model always stays `/`, matching the Camel folder dropdown; the raw text tab always stays in the real separator, matching what's actually sent/received over ManageSieve). The real separator itself is either entered manually (`sieve-config-page.c`, "Folders" section, per-account) or detected with the "Detect Automatically" button, which opens its own minimal IMAP connection (`src/sieve-imap-probe.[ch]`, `LIST "" ""` — RFC 3501 §6.3.8) since there's no other way to learn it; not available for OAuth2 accounts (no password to hand a plain `LOGIN`). |
 
 ## Layout
 
@@ -163,11 +168,22 @@ src/sieve-account.[ch]             reading Evolution accounts; OAuth2
                                    re-reading the account's password via EDS
                                    (e_source_credentials_provider_lookup_sync);
                                    DEPENDS on libedataserver (built with the module)
+src/sieve-imap-probe.[ch]          minimal, read-only IMAP4rev1 probe
+                                   (RFC 3501): connect (implicit TLS /
+                                   STARTTLS) + LOGIN + `LIST "" ""` +
+                                   LOGOUT, used ONLY to discover an
+                                   account's real IMAP hierarchy
+                                   separator (issue #3 — see the
+                                   pitfalls table above); pure GLib/GIO,
+                                   testable alone (tests/test-imap-probe)
 src/sieve-config.[ch]              GKeyFile preferences (XDG_CONFIG_HOME):
                                    one connection profile PER ACCOUNT
                                    ([account <UID>]) + [manual] profile +
                                    [state] last-account; migration of the
-                                   old [connection]; pure GLib, testable
+                                   old [connection]; per-account
+                                   `folder-separator` (issue #3, see
+                                   sieve-imap-probe.[ch] above); pure
+                                   GLib, testable
 src/sieve-config-page.[ch]         "Sieve Filters" page of the account
                                    editor (EMailConfigPage + EExtension on
                                    E_TYPE_MAIL_CONFIG_NOTEBOOK): the
@@ -183,7 +199,19 @@ src/sieve-config-page.[ch]         "Sieve Filters" page of the account
                                    another password/OAuth mechanism
                                    succeeded, and the run stops after 2
                                    ambiguous failures, to avoid tripping
-                                   brute-force protection) + "Kerberos
+                                   brute-force protection) + "Folders"
+                                   section: "Folder separator:" field
+                                   (per-account `folder-separator`,
+                                   default '/') + "Detect Automatically"
+                                   button (issue #3: opens its own IMAP
+                                   connection via sieve-imap-probe.[ch]
+                                   using the account's REAL IMAP
+                                   host/port/encryption — read from
+                                   CamelNetworkSettings via the mail
+                                   session, NOT the ManageSieve settings
+                                   above — and its EDS-stored password;
+                                   insensitive for OAuth2 accounts) +
+                                   "Kerberos
                                    hostname:" field (advanced, empty by
                                    default, stored as `gssapi-hostname`):
                                    GSSAPI service principal hostname
@@ -212,6 +240,8 @@ src/module-sieve-filters.c         EModule entry point: Edit → Sieve
                                    via sieve_editor_dialog_new_with_seed)
                                    + account editor page (sieve-config-page)
 tests/test-managesieve.c           client test CLI (network)
+tests/test-imap-probe.c            sieve-imap-probe test CLI (network,
+                                   issue #3 — see tests/dovecot/ below)
 tests/test-sasl.c                  sieve-sasl unit tests (no network)
 tests/test-sieve-model.c           sieve-model unit tests (no network)
 tests/test-sieve-secret.c          keyring round-trip; skips without Secret Service
