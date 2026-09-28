@@ -1,12 +1,21 @@
+evolution-sieve-filters (0.4.7-1) unstable; urgency=medium
+
+  * Account editor's Sieve Filters page: the "Test" button and the
+    "Connectivity" section are removed, "Check Supported Types" now
+    covers it. Its result is shown on a visible line under "Type", and
+    a type chosen by hand is kept as long as it works (only an empty or
+    failing choice is replaced by the most secure working type).
+  * Update the French translation.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Mon, 28 Sep 2026 16:51:47 +0000
+
 evolution-sieve-filters (0.4.6-1) unstable; urgency=medium
 
   * "Check Supported Types" in the account editor's Sieve Filters page
-    now selects the most secure authentication type that works (a type
-    chosen by hand is kept if it works), and shows its result on a
-    visible line. It replaces the "Test" button, removed along with the
-    "Connectivity" section. The "Automatic" entry is gone: when no type
-    is saved yet, the check runs by itself when the page opens. The
-    GSSAPI-only options below are only shown while GSSAPI is selected.
+    now selects the most secure authentication type that works. The
+    "Automatic" entry is gone: when no type is saved yet, the check runs
+    by itself when the page opens. The GSSAPI-only options below are
+    only shown while GSSAPI is selected.
   * New "Fall back to another type if GSSAPI fails" option (on by
     default): a selected GSSAPI retries once with the next working type
     (e.g. SCRAM with the password) if Kerberos fails, such as with an
