@@ -186,6 +186,39 @@ auth_type_dup_selected (SieveConfigPage *self)
   return mech;
 }
 
+/* Sets the "struck through" mark of one mechanism's row (NULL = all rows). */
+static void
+auth_type_set_struck (SieveConfigPage *self, const gchar *mech, gboolean struck)
+{
+  GtkTreeModel *model = gtk_combo_box_get_model (GTK_COMBO_BOX (self->auth_type_combo));
+  GtkTreeIter iter;
+  gboolean valid;
+
+  for (valid = gtk_tree_model_get_iter_first (model, &iter); valid;
+       valid = gtk_tree_model_iter_next (model, &iter)) {
+    g_autofree gchar *row_mech = NULL;
+
+    gtk_tree_model_get (model, &iter, AUTH_COL_MECH, &row_mech, -1);
+    if (row_mech != NULL && (mech == NULL || g_ascii_strcasecmp (row_mech, mech) == 0))
+      gtk_list_store_set (GTK_LIST_STORE (model), &iter, AUTH_COL_STRUCK, struck, -1);
+  }
+  /* The combo's own button caches the rendered active row. */
+  gtk_widget_queue_resize (self->auth_type_combo);
+}
+
+static void check_types_set_status (SieveConfigPage *self, const gchar *text);
+
+/* A connection setting changed: the previous "Check Supported Types"
+ * verdicts no longer describe this configuration (e.g. GSSAPI struck
+ * before the Kerberos hostname was filled in), so drop them. */
+static void
+sieve_config_page_connection_changed (SieveConfigPage *self)
+{
+  auth_type_set_struck (self, NULL, FALSE);
+  check_types_set_status (self, NULL);
+  e_mail_config_page_changed (E_MAIL_CONFIG_PAGE (self));
+}
+
 static GtkWidget *
 auth_type_combo_new (void)
 {
@@ -656,6 +689,8 @@ test_conn_done (GObject *source, GAsyncResult *res, gpointer user_data)
       g_strdup_printf (_("Connection and authentication succeeded "
                          "(SASL mechanism: %s)."), mech);
     gtk_label_set_text (GTK_LABEL (self->test_status), msg);
+    /* Proven to work: must not stay struck from an earlier type check. */
+    auth_type_set_struck (self, mech, FALSE);
   } else {
     gtk_label_set_text (GTK_LABEL (self->test_status),
                         _("Connection and authentication succeeded."));
@@ -718,7 +753,17 @@ typedef struct {
   ProbeState states[MAX_MECHS];  /* indexed like sieve_sasl_known_mechanisms() */
   gboolean   stopped_early;      /* credentials look wrong: run cut short */
   gboolean   no_credentials;     /* password/token mechanisms could not be tried */
+  gchar     *gssapi_error;       /* why GSSAPI failed (unambiguous), or NULL */
 } CheckResult;
+
+static void
+check_result_free (CheckResult *r)
+{
+  if (r == NULL)
+    return;
+  g_free (r->gssapi_error);
+  g_free (r);
+}
 
 static gboolean
 mech_is_oauth_name (const gchar *mech)
@@ -821,6 +866,8 @@ check_types_task_run (GTask *task, gpointer source_object, gpointer task_data,
                                                      cancellable, &probe_err);
     sieve_managesieve_client_disconnect (client);
     g_object_unref (client);
+    if (!ok && is_gssapi && probe_err != NULL)
+      result->gssapi_error = g_strdup (probe_err->message);
     g_clear_error (&probe_err);
 
     if (g_cancellable_is_cancelled (cancellable))
@@ -844,7 +891,7 @@ check_types_task_run (GTask *task, gpointer source_object, gpointer task_data,
       result->states[n] = any_ok ? PROBE_UNSUPPORTED : PROBE_UNTESTED;
 
   resolved_creds_clear (&rc);
-  g_task_return_pointer (task, result, g_free);
+  g_task_return_pointer (task, result, (GDestroyNotify) check_result_free);
 }
 
 /* Builds "A, B, C" from the mechanisms whose state is `wanted`. */
@@ -883,7 +930,7 @@ check_types_done (GObject *source, GAsyncResult *res, gpointer user_data)
 
   if (g_cancellable_is_cancelled (g_task_get_cancellable (G_TASK (res)))) {
     g_clear_error (&error);
-    g_free (r);
+    check_result_free (r);
     g_object_unref (self);
     return;
   }
@@ -939,9 +986,14 @@ check_types_done (GObject *source, GAsyncResult *res, gpointer user_data)
         g_string_append_printf (msg, " %s",
           _("The selected type does not work with this server."));
   }
+  if (r->gssapi_error != NULL) {
+    g_string_append_c (msg, ' ');
+    /* Translators: %s is the (English) error detail. */
+    g_string_append_printf (msg, _("GSSAPI failed: %s"), r->gssapi_error);
+  }
   check_types_set_status (self, msg->str);
 
-  g_free (r);
+  check_result_free (r);
   g_object_unref (self);
 }
 
@@ -1529,19 +1581,21 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
   sieve_config_page_load_fields (self);
 
   g_signal_connect_swapped (self->host_entry, "changed",
-                            G_CALLBACK (e_mail_config_page_changed), self);
+                            G_CALLBACK (sieve_config_page_connection_changed), self);
   g_signal_connect_swapped (self->port_spin, "value-changed",
-                            G_CALLBACK (e_mail_config_page_changed), self);
+                            G_CALLBACK (sieve_config_page_connection_changed), self);
   g_signal_connect_swapped (self->user_entry, "changed",
-                            G_CALLBACK (e_mail_config_page_changed), self);
+                            G_CALLBACK (sieve_config_page_connection_changed), self);
   g_signal_connect_swapped (self->encryption_combo, "changed",
-                            G_CALLBACK (e_mail_config_page_changed), self);
+                            G_CALLBACK (sieve_config_page_connection_changed), self);
   g_signal_connect_swapped (self->auth_type_combo, "changed",
                             G_CALLBACK (e_mail_config_page_changed), self);
   g_signal_connect_swapped (self->password_entry, "changed",
-                            G_CALLBACK (e_mail_config_page_changed), self);
+                            G_CALLBACK (sieve_config_page_connection_changed), self);
   g_signal_connect_swapped (self->auto_connect_check, "toggled",
                             G_CALLBACK (e_mail_config_page_changed), self);
+  g_signal_connect_swapped (self->gssapi_hostname_entry, "changed",
+                            G_CALLBACK (sieve_config_page_connection_changed), self);
   g_signal_connect_swapped (self->folder_separator_entry, "changed",
                             G_CALLBACK (e_mail_config_page_changed), self);
   g_signal_connect (self->forget_button, "clicked",
