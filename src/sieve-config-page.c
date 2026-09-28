@@ -102,8 +102,9 @@ struct _SieveConfigPage {
                                     * is read back and re-saved untouched,
                                     * never surfaced as a widget) */
   GtkWidget *gssapi_fallback_check; /* "Fall back to another type if
-                                    * GSSAPI fails": only sensitive while
-                                    * the "Type" list is on GSSAPI */
+                                    * GSSAPI fails"; like the checkbox
+                                    * above, only shown while the "Type"
+                                    * list is on GSSAPI */
   GtkWidget *auto_connect_check;    /* "Connect automatically" */
   GtkWidget *folder_separator_entry;   /* the account's real IMAP hierarchy
                                         * separator (empty = '/'); issue #3 */
@@ -235,14 +236,22 @@ sieve_config_page_connection_changed (SieveConfigPage *self)
   e_mail_config_page_changed (E_MAIL_CONFIG_PAGE (self));
 }
 
-/* The fallback checkbox only matters for a forced GSSAPI. */
+/* The GSSAPI-only checkboxes (DNS canonicalization, fallback) are only
+ * shown while the "Type" list is on GSSAPI. */
+static void
+sieve_config_page_update_gssapi_options (SieveConfigPage *self)
+{
+  g_autofree gchar *mech = auth_type_dup_selected (self);
+  gboolean is_gssapi = g_strcmp0 (mech, "GSSAPI") == 0;
+
+  gtk_widget_set_visible (self->gssapi_canonicalize_check, is_gssapi);
+  gtk_widget_set_visible (self->gssapi_fallback_check, is_gssapi);
+}
+
 static void
 sieve_config_page_auth_type_changed (SieveConfigPage *self)
 {
-  g_autofree gchar *mech = auth_type_dup_selected (self);
-
-  gtk_widget_set_sensitive (self->gssapi_fallback_check,
-                            g_strcmp0 (mech, "GSSAPI") == 0);
+  sieve_config_page_update_gssapi_options (self);
   e_mail_config_page_changed (E_MAIL_CONFIG_PAGE (self));
 }
 
@@ -316,8 +325,7 @@ sieve_config_page_load_fields (SieveConfigPage *self)
                                 cfg->gssapi_canonicalize_hostname);
   gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->gssapi_fallback_check),
                                 cfg->gssapi_fallback);
-  gtk_widget_set_sensitive (self->gssapi_fallback_check,
-                            g_strcmp0 (cfg->auth_mechanism, "GSSAPI") == 0);
+  sieve_config_page_update_gssapi_options (self);
   {
     gchar sep_text[2] = { cfg->folder_separator, '\0' };
     gtk_entry_set_text (GTK_ENTRY (self->folder_separator_entry),
@@ -1628,6 +1636,10 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
   gtk_grid_attach (GTK_GRID (grid), self->forget_status, 1, 3, 3, 1);
   gtk_grid_attach (GTK_GRID (grid), self->gssapi_canonicalize_check, 1, 4, 3, 1);
   gtk_grid_attach (GTK_GRID (grid), self->gssapi_fallback_check, 1, 5, 3, 1);
+  /* Visibility driven by the "Type" list (update_gssapi_options()):
+   * gtk_widget_show_all must not reveal them. */
+  gtk_widget_set_no_show_all (self->gssapi_canonicalize_check, TRUE);
+  gtk_widget_set_no_show_all (self->gssapi_fallback_check, TRUE);
 
   /* "Connectivity" section: "Test" button that attempts a ManageSieve
    * connection + authentication with the entered values (without

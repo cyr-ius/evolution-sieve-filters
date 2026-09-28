@@ -104,8 +104,8 @@ failure). See `tests/secret/README.md`.
   when `SieveManageSieveAuth.gssapi_fallback` is set (`--gssapi-fallback`
   in `test-managesieve`; `gssapi-fallback` in `sieve-config`, **TRUE by
   default**; the "Fall back to another type if GSSAPI fails" checkbox under
-  "Canonicalize automatically (DNS)" in `sieve-config-page.c`, only
-  sensitive while the "Type" list is on GSSAPI). This exists because
+  "Canonicalize automatically (DNS)" in `sieve-config-page.c`, both
+  shown only while the "Type" list is on GSSAPI). This exists because
   "Check Supported Types" selects the most secure working type — GSSAPI
   whenever a ticket was present at check time — and an expired ticket
   would otherwise break the connection. The type check itself never sets
@@ -246,8 +246,10 @@ src/sieve-config-page.[ch]         "Sieve Filters" page of the account
                                    first in sieve_sasl_known_mechanisms()
                                    order) + "Fall back to another type if
                                    GSSAPI fails" checkbox (stored as
-                                   `gssapi-fallback`, ON by default) +
-                                   "Folders"
+                                   `gssapi-fallback`, ON by default;
+                                   like the "Canonicalize" checkbox
+                                   below, only shown while the "Type"
+                                   list is on GSSAPI) + "Folders"
                                    section: "Folder separator:" field
                                    (per-account `folder-separator`,
                                    default '/') + "Detect Automatically"
