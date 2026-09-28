@@ -1,3 +1,16 @@
+evolution-sieve-filters (0.4.5-1) unstable; urgency=medium
+
+  * Fix "Check Supported Types" in the account editor's Sieve Filters
+    page showing a mechanism struck through (e.g. GSSAPI) although
+    "Test" authenticates with it: verdicts from an earlier check are now
+    cleared whenever a connection setting changes (including the
+    Kerberos hostname), and a successful "Test" un-strikes the mechanism
+    it used. When GSSAPI fails, the reason is shown in the button's
+    tooltip.
+  * Update the French translation.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Mon, 28 Sep 2026 15:45:44 +0000
+
 evolution-sieve-filters (0.4.4-1) unstable; urgency=medium
 
   * Fix fileinto to a nested folder being rejected by Dovecot when its
