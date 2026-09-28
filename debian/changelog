@@ -1,3 +1,21 @@
+evolution-sieve-filters (0.4.6-1) unstable; urgency=medium
+
+  * "Check Supported Types" in the account editor's Sieve Filters page
+    now selects the most secure authentication type that works. The
+    "Automatic" entry is gone: when no type is saved yet, the check runs
+    by itself when the page opens.
+  * New "Fall back to another type if GSSAPI fails" option (on by
+    default): a selected GSSAPI retries once with the next working type
+    (e.g. SCRAM with the password) if Kerberos fails, such as with an
+    expired ticket.
+  * GSSAPI: resolve the server's DNS canonical hostname automatically
+    (new "Canonicalize automatically (DNS)" option, on by default), like
+    Evolution's own IMAP connector does, so a ManageSieve host reached
+    through a DNS alias (CNAME) works without typing the canonical name.
+  * Update the French translation.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Mon, 28 Sep 2026 16:35:47 +0000
+
 evolution-sieve-filters (0.4.5-1) unstable; urgency=medium
 
   * Fix "Check Supported Types" in the account editor's Sieve Filters
