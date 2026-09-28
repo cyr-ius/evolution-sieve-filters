@@ -477,7 +477,7 @@ msgstr "Vérifier les types pris en charge"
 
 #: src/sieve-config-page.c:1489
 msgid "Canonicalize automatically (DNS)"
-msgstr "Détecter automatiquement (DNS)"
+msgstr "Canonicalisation automatiquement (CNAME DNS)"
 
 #: src/sieve-config-page.c:1492
 msgid ""
