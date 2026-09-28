@@ -37,6 +37,19 @@ typedef struct {
                              * ManageSieve host that's a DNS alias (CNAME)
                              * not covered by the server's Kerberos keytab
                              * (issue #2) */
+  gboolean gssapi_canonicalize_hostname; /* TRUE: resolve the connection
+                             * host's DNS canonical name automatically for
+                             * GSSAPI instead of requiring gssapi_hostname
+                             * to be typed by hand; ignored if
+                             * gssapi_hostname is set. Mirrors Evolution/
+                             * Camel's own (unconditional) behavior for
+                             * IMAP -- see sieve-sasl.h. TRUE by default
+                             * (sieve_config_load_for_account(), like
+                             * auto_connect / remember_password): matches
+                             * what Evolution's own IMAP connector already
+                             * does out of the box, so ManageSieve behaves
+                             * the same way unless the "Kerberos hostname:"
+                             * field is filled in (which always wins). */
   gchar    folder_separator; /* the account's REAL IMAP hierarchy
                               * separator (often '.' for Dovecot/
                               * Maildir++, sometimes '/'); 0 = not set,

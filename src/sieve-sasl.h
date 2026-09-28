@@ -52,6 +52,22 @@ typedef struct {
                                  * (CNAME) not matching the server's
                                  * Kerberos keytab (issue #2). Never affects
                                  * OAUTHBEARER's own host= field. */
+  gboolean     gssapi_canonicalize_hostname; /* TRUE: for GSSAPI only, and
+                                 * only when `gssapi_hostname` isn't already
+                                 * set (an explicit override always wins),
+                                 * resolve `hostname`'s DNS canonical name
+                                 * (CNAME chase, like POSIX
+                                 * getaddrinfo(AI_CANONNAME)) instead of
+                                 * using it literally — an automatic
+                                 * alternative to typing the canonical name
+                                 * by hand in `gssapi_hostname`. Mirrors
+                                 * Evolution/Camel's own behavior for IMAP
+                                 * (camel-sasl-gssapi.c does exactly this,
+                                 * unconditionally, with no way to disable
+                                 * it — see AGENTS.md). A lookup failure
+                                 * fails the whole authentication attempt,
+                                 * same as Camel; ignored for any mechanism
+                                 * other than GSSAPI. */
 } SieveSaslCredentials;
 
 /* Mechanisms this module can drive, listed from most to least desirable.

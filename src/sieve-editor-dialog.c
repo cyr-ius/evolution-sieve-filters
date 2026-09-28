@@ -675,6 +675,9 @@ typedef struct {
                            * NULL = automatic negotiation */
   gchar *gssapi_hostname; /* GSSAPI service principal hostname override,
                            * from the account's page; NULL = use `host` */
+  gboolean gssapi_canonicalize_hostname; /* automatic alternative to
+                           * gssapi_hostname, from the account's page;
+                           * ignored when it's set */
 
   /* Selected Evolution account (index > 0): `account_source_uid` +
    * `registry` let the worker thread either request an OAuth2 token
@@ -795,7 +798,9 @@ connect_task_run (GTask *task, gpointer source_object, gpointer task_data,
 
     {
       SieveManageSieveAuth auth = { .authid = in->user, .oauth2_token = token,
-                                    .gssapi_hostname = in->gssapi_hostname };
+                                    .gssapi_hostname = in->gssapi_hostname,
+                                    .gssapi_canonicalize_hostname =
+                                      in->gssapi_canonicalize_hostname };
       gboolean ok = sieve_managesieve_client_authenticate_sync (client,
                                                                 in->auth_mechanism,
                                                                 &auth,
@@ -844,7 +849,9 @@ connect_task_run (GTask *task, gpointer source_object, gpointer task_data,
        * offers it, otherwise PLAIN…); otherwise the type chosen in the
        * account editor's "Sieve Filters" page. */
       SieveManageSieveAuth auth = { .authid = in->user, .password = effective_pw,
-                                    .gssapi_hostname = in->gssapi_hostname };
+                                    .gssapi_hostname = in->gssapi_hostname,
+                                    .gssapi_canonicalize_hostname =
+                                      in->gssapi_canonicalize_hostname };
       if (!sieve_managesieve_client_authenticate_sync (client,
                                                        in->auth_mechanism, &auth,
                                                        cancellable, &error))
@@ -1019,6 +1026,7 @@ start_connect (SieveEditorState *state)
   in->user = g_strdup (eff_user);
   in->auth_mechanism = g_strdup (cfg->auth_mechanism);
   in->gssapi_hostname = g_strdup (cfg->gssapi_hostname);
+  in->gssapi_canonicalize_hostname = cfg->gssapi_canonicalize_hostname;
   in->password = NULL;   /* no field here: a password specific to the
                           * plugin (its own keyring, populated from the
                           * account editor's "Sieve Filters" page) then,

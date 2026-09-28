@@ -140,6 +140,12 @@ if [ "$HAVE_KDC" = 1 ] && grep -q "^auth_mechanisms.*gssapi" "$FIX/run/dovecot.c
   echo "$out" | grep -q "mechanism: GSSAPI)" \
     || { echo "FAILED: automatic negotiation didn't pick GSSAPI although a ticket was available" >&2; exit 1; }
 
+  echo; echo "===> SASL GSSAPI with --gssapi-canonicalize-hostname, no real CNAME involved (canonicalizes to itself)"
+  out="$("$BIN" "${gssapi_creds[@]}" --mech GSSAPI --gssapi-canonicalize-hostname 2>&1)"
+  echo "$out"
+  echo "$out" | grep -q "mechanism: GSSAPI)" \
+    || { echo "FAILED: GSSAPI with --gssapi-canonicalize-hostname didn't authenticate (localhost should canonicalize to itself)" >&2; exit 1; }
+
   # --gssapi-hostname (issue #2): reproduces the actual report. Dovecot
   # itself decides which service principal it accepts, via its own
   # auth_gssapi_hostname setting (normally == the address clients connect
@@ -166,6 +172,12 @@ if [ "$HAVE_KDC" = 1 ] && grep -q "^auth_mechanisms.*gssapi" "$FIX/run/dovecot.c
   echo "$out"
   echo "$out" | grep -q "mechanism: GSSAPI)" \
     || { echo "FAILED: GSSAPI with --gssapi-hostname didn't authenticate" >&2; exit 1; }
+
+  echo; echo "===> SASL GSSAPI with --gssapi-canonicalize-hostname alone (no real DNS CNAME for canon_host: must NOT fix this case)"
+  out="$("$BIN" "${gssapi_creds[@]}" --mech GSSAPI --gssapi-canonicalize-hostname 2>&1 || true)"
+  echo "$out"
+  echo "$out" | grep -q "mechanism: GSSAPI)" \
+    && { echo "FAILED: canonicalizing 'localhost' can't have matched $canon_host without a real DNS CNAME" >&2; exit 1; }
 
   # Restore the default before the rest of the battery (and in case
   # something else reuses this persistent fixture afterwards).

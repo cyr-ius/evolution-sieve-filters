@@ -10,6 +10,8 @@
  *   host=...  port=...  user=...  implicit-tls=...  auto-connect=...  remember-password=...
  *   auth-mechanism=...  (absent / "" => automatic negotiation)
 *   gssapi-hostname=...  (absent / "" => use `host`; advanced GSSAPI override)
+*   gssapi-canonicalize-hostname=... (absent / false => off; automatic
+*                          alternative to gssapi-hostname, ignored if it's set)
 *   folder-separator=... (absent / "" => '/'; the account's real IMAP
 *                          hierarchy separator, issue #3)
  *
@@ -170,11 +172,17 @@ sieve_config_load_for_account (const gchar *account_uid)
    * connection becomes the default behavior). `remember_password` is
    * now always true (the keyring is the default mode, there's no more
    * "Remember" checkbox; removal goes through the "Forget" button) —
-   * the key is kept for state-file compatibility. */
+   * the key is kept for state-file compatibility.
+   * `gssapi_canonicalize_hostname` defaults to true: it matches what
+   * Evolution/Camel's own GSSAPI SASL already does unconditionally for
+   * IMAP (see AGENTS.md), so ManageSieve behaves the same way out of
+   * the box; the "Kerberos hostname:" field, when filled in, still
+   * takes priority over it (see sieve-sasl.c). */
   config->account_uid = (account_uid != NULL && *account_uid != '\0')
                           ? g_strdup (account_uid) : NULL;
   config->auto_connect = TRUE;
   config->remember_password = TRUE;
+  config->gssapi_canonicalize_hostname = TRUE;
 
   if (!g_key_file_has_group (kf, group))
     return config;
@@ -183,6 +191,9 @@ sieve_config_load_for_account (const gchar *account_uid)
   config->user = dup_string_key (kf, group, "user");
   config->auth_mechanism = dup_string_key (kf, group, "auth-mechanism");
   config->gssapi_hostname = dup_string_key (kf, group, "gssapi-hostname");
+  if (g_key_file_has_key (kf, group, "gssapi-canonicalize-hostname", NULL))
+    config->gssapi_canonicalize_hostname =
+      g_key_file_get_boolean (kf, group, "gssapi-canonicalize-hostname", NULL);
 
   {
     g_autofree gchar *sep = dup_string_key (kf, group, "folder-separator");
@@ -240,6 +251,8 @@ sieve_config_save_for_account (const SieveConfig *config,
     g_key_file_set_string (kf, group, "gssapi-hostname", config->gssapi_hostname);
   else
     g_key_file_remove_key (kf, group, "gssapi-hostname", NULL);
+  g_key_file_set_boolean (kf, group, "gssapi-canonicalize-hostname",
+                          config->gssapi_canonicalize_hostname);
   if (config->folder_separator != '\0' && config->folder_separator != '/') {
     gchar sep[2] = { config->folder_separator, '\0' };
     g_key_file_set_string (kf, group, "folder-separator", sep);

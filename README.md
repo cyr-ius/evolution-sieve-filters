@@ -116,10 +116,20 @@ sudo apt install ../evolution-sieve-filters_*.deb
   (automatic negotiation of the best common mechanism; GSSAPI preferred
   when the caller has a usable Kerberos ticket, then SCRAM). GSSAPI lets
   an Active Directory-joined workstation authenticate via its existing
-  Kerberos ticket, with no password at all. SCRAM-*-PLUS (TLS channel
-  binding), GS2-KRB5 and EXTERNAL are **not** supported: `sieve-sasl.c`
-  never offers them, regardless of what the underlying `libgsasl` build
-  is capable of (see AGENTS.md).
+  Kerberos ticket, with no password at all. If the ManageSieve host is a
+  DNS alias (CNAME) not covered by the server's Kerberos keytab, the
+  "Canonicalize automatically (DNS)" checkbox (account editor,
+  Authentication section, on by default) fixes GSSAPI authentication by
+  resolving the canonical hostname itself — the same thing Evolution's
+  own IMAP connector always does, unconditionally, for the receiving
+  server. For the rare case where even the canonical name doesn't match
+  the server's keytab, an exact override can still be set by hand as
+  `gssapi-hostname` in the plugin's configuration file (advanced,
+  intentionally not a GUI field — see AGENTS.md). SCRAM-*-PLUS (TLS
+  channel binding), GS2-KRB5 and
+  EXTERNAL are **not** supported: `sieve-sasl.c` never offers them,
+  regardless of what the underlying `libgsasl` build is capable of (see
+  AGENTS.md).
 
 ## Architecture
 

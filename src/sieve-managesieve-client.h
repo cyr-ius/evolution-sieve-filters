@@ -93,6 +93,13 @@ typedef struct {
                                  * alias (CNAME) not covered by the
                                  * server's keytab. NULL => use the
                                  * connection host, as before. */
+  gboolean     gssapi_canonicalize_hostname; /* GSSAPI only, and only when
+                                 * gssapi_hostname is NULL: resolve the
+                                 * connection host's DNS canonical name
+                                 * instead of using it literally, the
+                                 * automatic alternative to gssapi_hostname
+                                 * — see SieveSaslCredentials in
+                                 * sieve-sasl.h. */
 } SieveManageSieveAuth;
 
 /* Authenticates the session (AUTHENTICATE, RFC 5804 §2.1).

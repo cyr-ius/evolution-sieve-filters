@@ -86,9 +86,21 @@ struct _SieveConfigPage {
                                     * sieve_sasl_known_mechanisms()); model
                                     * columns: see AUTH_COL_* */
   GtkWidget *check_types_button;    /* "Check Supported Types" */
-  GtkWidget *gssapi_hostname_entry; /* advanced: GSSAPI service principal
-                                    * hostname override (empty = use
-                                    * "Server:" above); see issue #2 */
+  GtkWidget *gssapi_canonicalize_check; /* "Canonicalize automatically
+                                    * (DNS)": automatic alternative to
+                                    * gssapi-hostname (issue #2), which is
+                                    * NOT exposed in the GUI on purpose --
+                                    * an advanced escape hatch only meant
+                                    * to be hand-edited in sieve-config's
+                                    * state.ini for the rare case where
+                                    * even DNS canonicalization doesn't
+                                    * match the server's keytab; ignored
+                                    * when gssapi-hostname is set, whether
+                                    * or not the checkbox reflects that
+                                    * (see sieve_config_page_load_fields()
+                                    * and commit_changes(): the ini value
+                                    * is read back and re-saved untouched,
+                                    * never surfaced as a widget) */
   GtkWidget *auto_connect_check;    /* "Connect automatically" */
   GtkWidget *folder_separator_entry;   /* the account's real IMAP hierarchy
                                         * separator (empty = '/'); issue #3 */
@@ -289,8 +301,8 @@ sieve_config_page_load_fields (SieveConfigPage *self)
   gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->auto_connect_check),
                                 cfg->auto_connect);
   auth_type_select (self, cfg->auth_mechanism);
-  gtk_entry_set_text (GTK_ENTRY (self->gssapi_hostname_entry),
-                      cfg->gssapi_hostname != NULL ? cfg->gssapi_hostname : "");
+  gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->gssapi_canonicalize_check),
+                                cfg->gssapi_canonicalize_hostname);
   {
     gchar sep_text[2] = { cfg->folder_separator, '\0' };
     gtk_entry_set_text (GTK_ENTRY (self->folder_separator_entry),
@@ -423,6 +435,8 @@ typedef struct {
   gchar   *auth_mechanism;      /* forced mechanism, NULL = automatic ("Test" only) */
   gchar   *gssapi_hostname;     /* GSSAPI service principal hostname override,
                                 * NULL = use `host` */
+  gboolean gssapi_canonicalize_hostname; /* automatic alternative to
+                                * gssapi_hostname, ignored when it's set */
   gboolean use_oauth2;
   gchar   *account_uid;         /* for EDS: OAuth2 token or account password */
   ESourceRegistry *registry;    /* ref transferred from the main thread */
@@ -546,7 +560,9 @@ test_conn_task_run (GTask *task, gpointer source_object, gpointer task_data,
     SieveManageSieveAuth auth = { .authid = in->user,
                                   .password = rc.password,
                                   .oauth2_token = rc.token,
-                                  .gssapi_hostname = in->gssapi_hostname };
+                                  .gssapi_hostname = in->gssapi_hostname,
+                                  .gssapi_canonicalize_hostname =
+                                    in->gssapi_canonicalize_hostname };
 
     if (sieve_managesieve_client_authenticate_sync (client, in->auth_mechanism,
                                                     &auth, cancellable, &error))
@@ -621,12 +637,18 @@ conn_input_from_widgets (SieveConfigPage *self, gboolean for_check)
       == SIEVE_ENC_IMPLICIT;
   in->user = g_strdup (user != NULL ? user : "");
   in->auth_mechanism = auth_type_dup_selected (self);
+  /* gssapi-hostname isn't a GUI field (advanced, ini-only escape hatch —
+   * see the struct comment): re-read it from the saved profile so "Test"
+   * / "Check Supported Types" reflect what a real connection would
+   * actually use. */
   {
-    const gchar *gssapi_hostname =
-      gtk_entry_get_text (GTK_ENTRY (self->gssapi_hostname_entry));
-    in->gssapi_hostname = (gssapi_hostname != NULL && *gssapi_hostname != '\0')
-                            ? g_strdup (gssapi_hostname) : NULL;
+    SieveConfig *saved =
+      sieve_config_load_for_account (e_source_get_uid (self->account_source));
+    in->gssapi_hostname = g_strdup (saved->gssapi_hostname);
+    sieve_config_free (saved);
   }
+  in->gssapi_canonicalize_hostname = gtk_toggle_button_get_active (
+    GTK_TOGGLE_BUTTON (self->gssapi_canonicalize_check));
   /* The password field is visible only after "Forget"; otherwise
    * resolution is left to fall back to the keyring then the account's
    * IMAP password. */
@@ -861,7 +883,9 @@ check_types_task_run (GTask *task, gpointer source_object, gpointer task_data,
     auth = (SieveManageSieveAuth) { .authid = in->user,
                                     .password = is_oauth ? NULL : rc.password,
                                     .oauth2_token = is_oauth ? rc.token : NULL,
-                                    .gssapi_hostname = in->gssapi_hostname };
+                                    .gssapi_hostname = in->gssapi_hostname,
+                                    .gssapi_canonicalize_hostname =
+                                      in->gssapi_canonicalize_hostname };
     ok = sieve_managesieve_client_authenticate_sync (client, mech, &auth,
                                                      cancellable, &probe_err);
     sieve_managesieve_client_disconnect (client);
@@ -1227,13 +1251,12 @@ sieve_config_page_commit_changes (EMailConfigPage *page,
     gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (self->auto_connect_check));
   g_free (cfg->auth_mechanism);
   cfg->auth_mechanism = auth_type_dup_selected (self);
-  {
-    const gchar *gssapi_hostname =
-      gtk_entry_get_text (GTK_ENTRY (self->gssapi_hostname_entry));
-    g_free (cfg->gssapi_hostname);
-    cfg->gssapi_hostname = (gssapi_hostname != NULL && *gssapi_hostname != '\0')
-                             ? g_strdup (gssapi_hostname) : NULL;
-  }
+  /* gssapi-hostname isn't a GUI field (see the struct comment): `cfg`
+   * was just loaded from the saved profile, so leaving it untouched
+   * here re-saves whatever is already in state.ini, hand-edited or
+   * not. */
+  cfg->gssapi_canonicalize_hostname = gtk_toggle_button_get_active (
+    GTK_TOGGLE_BUTTON (self->gssapi_canonicalize_check));
   {
     const gchar *sep =
       gtk_entry_get_text (GTK_ENTRY (self->folder_separator_entry));
@@ -1413,16 +1436,21 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
     gtk_button_new_with_label (_("Check Supported Types"));
   check_types_set_status (self, NULL);
 
-  self->gssapi_hostname_entry = gtk_entry_new ();
-  gtk_widget_set_hexpand (self->gssapi_hostname_entry, TRUE);
-  gtk_entry_set_placeholder_text (GTK_ENTRY (self->gssapi_hostname_entry),
-                                  _("same as Server, above"));
+  self->gssapi_canonicalize_check =
+    gtk_check_button_new_with_label (_("Canonicalize automatically (DNS)"));
   gtk_widget_set_tooltip_text (
-    self->gssapi_hostname_entry,
-    _("Only needed with GSSAPI, and only if the server address above is "
-      "a DNS alias (CNAME): the hostname used to build the GSSAPI "
-      "service principal (\"sieve/<hostname>\"). Leave empty to use the "
-      "server address."));
+    self->gssapi_canonicalize_check,
+    _("Resolves the connection host's DNS canonical name automatically "
+      "when authenticating with GSSAPI (a forward lookup following "
+      "CNAME records, same as getaddrinfo(AI_CANONNAME)) -- needed if "
+      "the server address above is a DNS alias not covered by the "
+      "server's Kerberos keytab. This is what Evolution's own IMAP "
+      "connector always does, unconditionally, for the receiving "
+      "server. A failed lookup fails the whole authentication attempt. "
+      "For the rare case where even the canonical name doesn't match "
+      "the keytab, an exact override can be set by hand as "
+      "\"gssapi-hostname\" in the plugin's configuration file -- not "
+      "exposed here, and always takes priority over this checkbox."));
 
   self->password_label = gtk_label_new (_("Password:"));
   gtk_label_set_xalign (GTK_LABEL (self->password_label), 1.0);
@@ -1548,8 +1576,7 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
     gtk_grid_attach (GTK_GRID (grid), auth_box, 1, 2, 3, 1);
   }
   gtk_grid_attach (GTK_GRID (grid), self->forget_status, 1, 3, 3, 1);
-  add_field (GTK_GRID (grid), 4, _("Kerberos hostname:"),
-             self->gssapi_hostname_entry, 3);
+  gtk_grid_attach (GTK_GRID (grid), self->gssapi_canonicalize_check, 1, 4, 3, 1);
 
   /* "Connectivity" section: "Test" button that attempts a ManageSieve
    * connection + authentication with the entered values (without
@@ -1594,7 +1621,7 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
                             G_CALLBACK (sieve_config_page_connection_changed), self);
   g_signal_connect_swapped (self->auto_connect_check, "toggled",
                             G_CALLBACK (e_mail_config_page_changed), self);
-  g_signal_connect_swapped (self->gssapi_hostname_entry, "changed",
+  g_signal_connect_swapped (self->gssapi_canonicalize_check, "toggled",
                             G_CALLBACK (sieve_config_page_connection_changed), self);
   g_signal_connect_swapped (self->folder_separator_entry, "changed",
                             G_CALLBACK (e_mail_config_page_changed), self);

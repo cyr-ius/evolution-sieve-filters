@@ -106,18 +106,42 @@ failure). See `tests/secret/README.md`.
   server can be configured to expect a *different* hostname there (Dovecot's
   own `auth_gssapi_hostname`) — typically because clients connect via a
   CNAME while the server's Kerberos identity is its canonical name. Fixed
-  by `--gssapi-hostname HOST` (`test-managesieve`) / the "Kerberos
-  hostname:" field in the account editor's Authentication section
-  (`sieve-config-page.c`, stored as `gssapi-hostname` in `sieve-config`,
-  empty by default = use the connection host): it overrides `GSASL_HOSTNAME`
-  for GSSAPI only (`SieveSaslCredentials.gssapi_hostname` /
+  by `--gssapi-hostname HOST` (`test-managesieve`) / `gssapi-hostname` in
+  `sieve-config`'s state.ini (empty by default = use the connection host):
+  it overrides `GSASL_HOSTNAME` for GSSAPI only
+  (`SieveSaslCredentials.gssapi_hostname` /
   `SieveManageSieveAuth.gssapi_hostname`), never OAUTHBEARER's own host=
-  field. `kdc.sh` exports a second keytab principal
-  (`sieve/<CANON_HOST>@SIEVE.TEST`, `CANON_HOST` a fictitious name — Kerberos
-  principals are just strings, no DNS involved) and `smoke.sh` reproduces
-  the mismatch by pointing Dovecot's `auth_gssapi_hostname` at it via a
-  live `reload` (client still connects to plain `localhost`): forced GSSAPI
-  fails without the override, succeeds with `--gssapi-hostname` set to it.
+  field. **Deliberately not exposed as a GUI field** (`sieve-config-page.c`
+  only reads it back and re-saves it untouched, in `conn_input_from_widgets()`
+  / `sieve_config_page_commit_changes()`): an advanced escape hatch meant
+  to be hand-edited in state.ini for the rare case that isn't already
+  covered by the checkbox below, so most users never need to touch it.
+  `kdc.sh` exports a second keytab principal (`sieve/<CANON_HOST>@SIEVE.TEST`,
+  `CANON_HOST` a fictitious name — Kerberos principals are just strings, no
+  DNS involved) and `smoke.sh` reproduces the mismatch by pointing
+  Dovecot's `auth_gssapi_hostname` at it via a live `reload` (client still
+  connects to plain `localhost`): forced GSSAPI fails without the
+  override, succeeds with `--gssapi-hostname` set to it.
+
+  **Automatic alternative (the one actually exposed in the GUI)**:
+  `--gssapi-canonicalize-hostname` (`test-managesieve`) / the "Canonicalize
+  automatically (DNS)" checkbox in the account editor's Authentication
+  section (`sieve-config-page.c`, stored as `gssapi-canonicalize-hostname`
+  in `sieve-config`, **TRUE by default** — see
+  `sieve_config_load_for_account()`, alongside `auto_connect` /
+  `remember_password` — ignored when `gssapi-hostname` is set in state.ini,
+  which always wins) resolves the connection host's DNS canonical name
+  itself (`sieve_sasl_canonicalize_hostname()` in `sieve-sasl.c`: plain
+  `getaddrinfo(AI_CANONNAME)`, a forward/CNAME-chasing lookup only —
+  blocking, not cancellable, done inside `sieve_sasl_new()` only when the
+  mechanism actually being negotiated is GSSAPI) instead of requiring the
+  canonical name typed by hand. This exists because Evolution/Camel's own
+  GSSAPI SASL (`camel-sasl-gssapi.c`, used for IMAP) does exactly this
+  **unconditionally, with no way to turn it off** — see the pitfalls
+  table entry below for how that was confirmed by reading Camel's
+  source; defaulting it to on here matches that out-of-the-box behavior
+  so ManageSieve doesn't need extra configuration for the common case. A
+  lookup failure fails the whole authentication attempt (same as Camel).
 
 - **`localhost:4190` = STARTTLS**, **`localhost:4191` = implicit TLS**.
 - Credentials: **`testuser` / `testpass`**.
@@ -150,6 +174,8 @@ Against a real server: `test-managesieve --host … --user … [--starttls] [--p
 | Dovecot GSSAPI: `While acquiring service credentials: ... Permission denied` | the auth worker reading `auth_krb5_keytab` does not run as root even though the master process is started via `sudo` (see run.sh) — the keytab must be world-readable. `kdc.sh` `chmod 644`s the keytab it generates; it's a disposable test-only key for a throwaway realm, so this is fine here (would not be, for a real deployment's keytab). |
 | Dovecot: `Fatal: service(imap) access(/usr/lib/dovecot/imap) failed: No such file or directory` | same story as the GSSAPI mechanism above, but for a whole protocol: `dovecot-imapd` (the actual `/usr/lib/dovecot/imap` executable, needed by `tests/test-imap-probe.c` / `sieve-imap-probe.c`, issue #3) is a **separate package** from `dovecot-core`. Listing `imap` in `protocols` when the binary is missing is **fatal at startup for the whole instance**, not just IMAP — `run.sh` therefore only adds `imap` to `protocols` (via `@IMAP_PROTOCOL_NAME@`) and keeps the `service imap-login { ... }` block (stripped between the `IMAP_BLOCK_BEGIN`/`IMAP_BLOCK_END` markers otherwise) when `/usr/lib/dovecot/imap` actually exists; `smoke.sh`'s IMAP probe battery is skipped the same way. Already in the Dockerfile (`dovecot-imapd`), but a devcontainer built before this fix needs `sudo apt-get install dovecot-imapd`. |
 | Evolution's own account editor, IMAP account: sends `fileinto "INBOX/Sub"` but Dovecot rejects it (`Name must not have '/' characters`) if its own namespace separator isn't `/` (often `.` for Maildir++) | issue #3 (https://github.com/cyr-ius/evolution-sieve-filters/issues/3). Camel's `CamelFolderInfo->full_name` is **always** `/`-normalized internally (confirmed against evolution-data-server's IMAPX provider: `camel_imapx_mailbox_to_folder_path()`), regardless of the server's real separator — and that real separator is **not exposed by any public Camel/EDS API** (`camel-imapx-store.h` / `camel-imapx-settings.h` are deliberately not installed as public headers; verified against the upstream `CMakeLists.txt`). Fix: `sieve_rule_set_translate_folder_separator()` (`src/sieve-model.[ch]`) translates fileinto paths between `/` and the account's real separator at exactly two points in `sieve-editor-dialog.c` (`sync_visual_to_text` / `sync_text_to_visual` — the visual model always stays `/`, matching the Camel folder dropdown; the raw text tab always stays in the real separator, matching what's actually sent/received over ManageSieve). The real separator itself is either entered manually (`sieve-config-page.c`, "Folders" section, per-account) or detected with the "Detect Automatically" button, which opens its own minimal IMAP connection (`src/sieve-imap-probe.[ch]`, `LIST "" ""` — RFC 3501 §6.3.8) since there's no other way to learn it; not available for OAuth2 accounts (no password to hand a plain `LOGIN`). |
+| "Evolution canonicalizes the GSSAPI hostname even though krb5.conf has `dns_canonicalize_hostname = false`" | Not a krb5 bug: **Evolution/Camel does its own canonicalization, in its own code, before krb5 ever sees the hostname.** Read straight from `camel-sasl-gssapi.c` upstream (github.com/GNOME/evolution-data-server), function `sasl_gssapi_challenge_sync()`: `hints.ai_flags = AI_CANONNAME; ai = camel_getaddrinfo (host, NULL, &hints, cancellable, error); str = g_strdup_printf ("%s@%s", service_name, ai->ai_canonname);` — a plain `getaddrinfo(AI_CANONNAME)` forward/CNAME-chasing lookup, generic (IMAP/SMTP/POP3/HTTP all share this function), with **no setting anywhere to disable it**. `dns_canonicalize_hostname` only controls what krb5 itself does internally (`krb5_sname_to_principal()`); it can't affect a hostname Camel already resolved and handed it as a literal string. (Also confirmed via official MIT krb5 docs: `rdns` — reverse/PTR lookup — explicitly "has no effect" when `dns_canonicalize_hostname = false`, so that's not the explanation either.) This plugin's own `sieve-sasl.c` does *not* do this (`GSASL_HOSTNAME` gets the literal host, hence issue #2's manual override) — see the entry right below for the opt-in equivalent now available here. |
+| GSSAPI + DNS alias/CNAME, automatic alternative to typing the canonical hostname | `sieve_sasl_canonicalize_hostname()` (`src/sieve-sasl.c`) reproduces Camel's `AI_CANONNAME` lookup above, opt-in via `SieveSaslCredentials.gssapi_canonicalize_hostname` / the "Canonicalize automatically (DNS)" checkbox (`sieve-config-page.c`) — see the dedicated bullet under "GSSAPI + DNS alias/CNAME (issue #2)" further down. |
 
 ## Layout
 
@@ -211,14 +237,21 @@ src/sieve-config-page.[ch]         "Sieve Filters" page of the account
                                    session, NOT the ManageSieve settings
                                    above — and its EDS-stored password;
                                    insensitive for OAuth2 accounts) +
-                                   "Kerberos
-                                   hostname:" field (advanced, empty by
-                                   default, stored as `gssapi-hostname`):
-                                   GSSAPI service principal hostname
-                                   override for a ManageSieve host that's
-                                   a DNS alias/CNAME (issue #2, see the
+                                   "Canonicalize automatically (DNS)"
+                                   checkbox (stored as
+                                   `gssapi-canonicalize-hostname`, ON by
+                                   default): resolves the DNS canonical
+                                   name for GSSAPI's service principal
+                                   itself (sieve-sasl.c) instead of
+                                   requiring it typed by hand — mirrors
+                                   Evolution/Camel's own unconditional
+                                   behavior for IMAP; the exact-override
+                                   escape hatch it's an alternative to,
+                                   `gssapi-hostname` (issue #2, see the
                                    "GSSAPI + DNS alias/CNAME" entry
-                                   above); password
+                                   above), is deliberately NOT a GUI
+                                   field — advanced, state.ini-only,
+                                   always wins when set there; password
                                    field HIDDEN by
                                    default (password taken from the
                                    keyring); the "Forget password" button

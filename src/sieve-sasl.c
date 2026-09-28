@@ -4,6 +4,8 @@
 
 #include <string.h>
 #include <gsasl.h>
+#include <netdb.h>
+#include <sys/socket.h>
 
 #ifdef HAVE_KRB5
 #include <krb5.h>
@@ -63,6 +65,50 @@ static gboolean
 mech_is_gssapi (const gchar *up)
 {
   return strcmp (up, "GSSAPI") == 0;
+}
+
+/* Resolves `hostname`'s DNS canonical name via POSIX getaddrinfo()'s
+ * AI_CANONNAME flag: a plain forward lookup, following CNAME records to
+ * whatever name the answer is ultimately for (NOT a reverse/PTR lookup —
+ * that's a separate, additional step controlled by krb5.conf's `rdns`,
+ * itself a no-op when `dns_canonicalize_hostname` is false; see the
+ * investigation in AGENTS.md / issue #2). This mirrors, byte for byte,
+ * what Evolution/Camel's own GSSAPI SASL does unconditionally for IMAP
+ * (camel-sasl-gssapi.c's sasl_gssapi_challenge_sync(): camel_getaddrinfo()
+ * with the same AI_CANONNAME flag, feeding ai_canonname straight into
+ * "<service>@<canonical>") — Camel gives no way to turn it off; here it's
+ * opt-in (SieveSaslCredentials.gssapi_canonicalize_hostname), since a
+ * failed lookup aborts the whole authentication attempt, same as Camel.
+ *
+ * Blocking, not cancellable: plain getaddrinfo() has no cancellation hook
+ * (unlike this project's other network calls, which go through GIO — see
+ * AGENTS.md's "GCancellable propagated" convention). Called only from a
+ * worker thread already, as part of an authentication attempt that has
+ * its own overall timeout. Returns the canonical name (g_free()), or
+ * NULL + error. */
+static gchar *
+sieve_sasl_canonicalize_hostname (const gchar *hostname, GError **error)
+{
+  struct addrinfo hints = { 0 };
+  struct addrinfo *result = NULL;
+  gchar *canonical;
+  int rc;
+
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_flags = AI_CANONNAME;
+
+  rc = getaddrinfo (hostname, NULL, &hints, &result);
+  if (rc != 0) {
+    g_set_error (error, SIEVE_SASL_ERROR, SIEVE_SASL_ERROR_MECHANISM,
+                 "DNS lookup for the GSSAPI canonical hostname of '%s' "
+                 "failed: %s", hostname, gai_strerror (rc));
+    return NULL;
+  }
+
+  canonical = (result->ai_canonname != NULL)
+                ? g_strdup (result->ai_canonname) : g_strdup (hostname);
+  freeaddrinfo (result);
+  return canonical;
 }
 
 #ifdef HAVE_KRB5
@@ -336,11 +382,25 @@ sieve_sasl_new (const gchar                *mechanism,
      * target principal ("sieve/<hostname>"). gssapi_hostname overrides it
      * when the connection host is a DNS alias (CNAME) not covered by the
      * server's keytab — see AGENTS.md. It never affects OAUTHBEARER's own
-     * host= field (oauth_host above, always keyed on creds->hostname). */
-    if (creds->gssapi_hostname != NULL)
+     * host= field (oauth_host above, always keyed on creds->hostname).
+     * gssapi_canonicalize_hostname is the automatic alternative to typing
+     * that override by hand: only tried for GSSAPI itself, and only when
+     * no explicit override was given. */
+    if (creds->gssapi_hostname != NULL) {
       gsasl_property_set (self->session, GSASL_HOSTNAME, creds->gssapi_hostname);
-    else if (creds->hostname != NULL)
+    } else if (mech_is_gssapi (up) && creds->gssapi_canonicalize_hostname
+               && creds->hostname != NULL) {
+      gchar *canonical = sieve_sasl_canonicalize_hostname (creds->hostname, error);
+
+      if (canonical == NULL) {
+        sieve_sasl_free (self);
+        return NULL;
+      }
+      gsasl_property_set (self->session, GSASL_HOSTNAME, canonical);
+      g_free (canonical);
+    } else if (creds->hostname != NULL) {
       gsasl_property_set (self->session, GSASL_HOSTNAME, creds->hostname);
+    }
   }
 
   return self;
