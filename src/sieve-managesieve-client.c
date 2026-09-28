@@ -989,14 +989,16 @@ sieve_managesieve_client_authenticate_sync (SieveManageSieveClient *self,
 
   ok = authenticate_with (self, chosen, &creds, cancellable, error, &retryable);
 
-  /* Automatic negotiation only: GSSAPI is picked as soon as a Kerberos
-   * ticket exists, but whether it works also depends on things the user
-   * doesn't necessarily control (service principal in the server's
-   * keytab, DNS/CNAME canonicalization…). Unlike a password mechanism,
-   * a GSSAPI failure says nothing about the password, so trying the next
-   * mechanism doesn't multiply failed password attempts. A forced
+  /* Automatic negotiation (or forced GSSAPI with auth->gssapi_fallback):
+   * GSSAPI is picked as soon as a Kerberos ticket exists, but whether it
+   * works also depends on things the user doesn't necessarily control
+   * (ticket expiry, service principal in the server's keytab, DNS/CNAME
+   * canonicalization…). Unlike a password mechanism, a GSSAPI failure
+   * says nothing about the password, so trying the next mechanism
+   * doesn't multiply failed password attempts. Any other forced
    * mechanism is never replaced. */
-  if (!ok && mechanism == NULL && retryable && g_strcmp0 (chosen, "GSSAPI") == 0 &&
+  if (!ok && (mechanism == NULL || auth->gssapi_fallback) && retryable &&
+      g_strcmp0 (chosen, "GSSAPI") == 0 &&
       (error == NULL || *error != NULL) && !g_cancellable_is_cancelled (cancellable)) {
     const gchar *excluded[] = { "GSSAPI", NULL };
     gchar *fallback = sieve_sasl_select_mechanism_excluding (sasl_cap, NULL, &creds,

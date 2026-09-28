@@ -82,7 +82,7 @@ struct _SieveConfigPage {
                                     * keyring entry, reveals the field + label,
                                     * and hides itself */
   GtkWidget *forget_status;         /* status line below the field / button */
-  GtkWidget *auth_type_combo;       /* "Type:" — SASL mechanism (Automatic +
+  GtkWidget *auth_type_combo;       /* "Type:" — SASL mechanism (one of
                                     * sieve_sasl_known_mechanisms()); model
                                     * columns: see AUTH_COL_* */
   GtkWidget *check_types_button;    /* "Check Supported Types" */
@@ -101,6 +101,9 @@ struct _SieveConfigPage {
                                     * and commit_changes(): the ini value
                                     * is read back and re-saved untouched,
                                     * never surfaced as a widget) */
+  GtkWidget *gssapi_fallback_check; /* "Fall back to another type if
+                                    * GSSAPI fails": only sensitive while
+                                    * the "Type" list is on GSSAPI */
   GtkWidget *auto_connect_check;    /* "Connect automatically" */
   GtkWidget *folder_separator_entry;   /* the account's real IMAP hierarchy
                                         * separator (empty = '/'); issue #3 */
@@ -164,7 +167,8 @@ sieve_config_page_init (SieveConfigPage *self)
 
 /* --- "Type" list (SASL mechanism) ------------------------------------ */
 
-/* Selects `mech` (NULL / unknown name => "Automatic", row 0). */
+/* Selects `mech` (NULL / unknown name => no selection: the connection
+ * then negotiates automatically until a type is chosen). */
 static void
 auth_type_select (SieveConfigPage *self, const gchar *mech)
 {
@@ -182,10 +186,10 @@ auth_type_select (SieveConfigPage *self, const gchar *mech)
       return;
     }
   }
-  gtk_combo_box_set_active (GTK_COMBO_BOX (self->auth_type_combo), 0);
+  gtk_combo_box_set_active (GTK_COMBO_BOX (self->auth_type_combo), -1);
 }
 
-/* Selected mechanism (free with g_free), NULL for "Automatic". */
+/* Selected mechanism (free with g_free), NULL if none is selected. */
 static gchar *
 auth_type_dup_selected (SieveConfigPage *self)
 {
@@ -231,6 +235,17 @@ sieve_config_page_connection_changed (SieveConfigPage *self)
   e_mail_config_page_changed (E_MAIL_CONFIG_PAGE (self));
 }
 
+/* The fallback checkbox only matters for a forced GSSAPI. */
+static void
+sieve_config_page_auth_type_changed (SieveConfigPage *self)
+{
+  g_autofree gchar *mech = auth_type_dup_selected (self);
+
+  gtk_widget_set_sensitive (self->gssapi_fallback_check,
+                            g_strcmp0 (mech, "GSSAPI") == 0);
+  e_mail_config_page_changed (E_MAIL_CONFIG_PAGE (self));
+}
+
 static GtkWidget *
 auth_type_combo_new (void)
 {
@@ -241,10 +256,6 @@ auth_type_combo_new (void)
   const gchar * const *mechs = sieve_sasl_known_mechanisms ();
   GtkTreeIter iter;
 
-  gtk_list_store_insert_with_values (store, &iter, -1,
-                                     AUTH_COL_LABEL, _("Automatic"),
-                                     AUTH_COL_MECH, NULL,
-                                     AUTH_COL_STRUCK, FALSE, -1);
   for (gsize i = 0; mechs[i] != NULL; i++)
     gtk_list_store_insert_with_values (store, &iter, -1,
                                        AUTH_COL_LABEL, mechs[i],
@@ -303,6 +314,10 @@ sieve_config_page_load_fields (SieveConfigPage *self)
   auth_type_select (self, cfg->auth_mechanism);
   gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->gssapi_canonicalize_check),
                                 cfg->gssapi_canonicalize_hostname);
+  gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->gssapi_fallback_check),
+                                cfg->gssapi_fallback);
+  gtk_widget_set_sensitive (self->gssapi_fallback_check,
+                            g_strcmp0 (cfg->auth_mechanism, "GSSAPI") == 0);
   {
     gchar sep_text[2] = { cfg->folder_separator, '\0' };
     gtk_entry_set_text (GTK_ENTRY (self->folder_separator_entry),
@@ -437,6 +452,9 @@ typedef struct {
                                 * NULL = use `host` */
   gboolean gssapi_canonicalize_hostname; /* automatic alternative to
                                 * gssapi_hostname, ignored when it's set */
+  gboolean gssapi_fallback;     /* forced GSSAPI: fall back if it fails
+                                * ("Test" only — never for the type check,
+                                * which must judge GSSAPI on its own) */
   gboolean use_oauth2;
   gchar   *account_uid;         /* for EDS: OAuth2 token or account password */
   ESourceRegistry *registry;    /* ref transferred from the main thread */
@@ -562,7 +580,8 @@ test_conn_task_run (GTask *task, gpointer source_object, gpointer task_data,
                                   .oauth2_token = rc.token,
                                   .gssapi_hostname = in->gssapi_hostname,
                                   .gssapi_canonicalize_hostname =
-                                    in->gssapi_canonicalize_hostname };
+                                    in->gssapi_canonicalize_hostname,
+                                  .gssapi_fallback = in->gssapi_fallback };
 
     if (sieve_managesieve_client_authenticate_sync (client, in->auth_mechanism,
                                                     &auth, cancellable, &error))
@@ -601,9 +620,9 @@ check_types_set_status (SieveConfigPage *self, const gchar *text)
     self->check_types_button,
     (text != NULL && *text != '\0')
       ? text
-      : _("Tries each authentication type with the server and strikes "
-          "through those that do not work. Uses the settings above, "
-          "without saving them."));
+      : _("Tries each authentication type with the server, strikes "
+          "through those that do not work and selects the most secure "
+          "one that does. Uses the settings above, without saving them."));
 }
 
 /* Snapshot of the widgets for a worker thread; NULL (+ message on the
@@ -649,6 +668,8 @@ conn_input_from_widgets (SieveConfigPage *self, gboolean for_check)
   }
   in->gssapi_canonicalize_hostname = gtk_toggle_button_get_active (
     GTK_TOGGLE_BUTTON (self->gssapi_canonicalize_check));
+  in->gssapi_fallback = gtk_toggle_button_get_active (
+    GTK_TOGGLE_BUTTON (self->gssapi_fallback_check));
   /* The password field is visible only after "Forget"; otherwise
    * resolution is left to fall back to the keyring then the account's
    * IMAP password. */
@@ -747,7 +768,11 @@ sieve_config_page_test_clicked (GtkButton *button, gpointer user_data)
  * Connects, reads the server's SASL capability, then tries to
  * authenticate with each mechanism this module knows (one fresh
  * connection per attempt) and strikes through in the "Type" list those
- * that don't work.
+ * that don't work, then selects the most secure one that does
+ * (first working entry of sieve_sasl_known_mechanisms(), which is
+ * ordered by decreasing preference). A selected GSSAPI still falls back
+ * to the next type at connection time when the "Fall back to another
+ * type if GSSAPI fails" checkbox is on (SieveManageSieveAuth.gssapi_fallback).
  *
  *   - Not advertised by the server, or unusable with this account
  *     (OAuth mechanisms without an OAuth2 account, password mechanisms
@@ -971,13 +996,11 @@ check_types_done (GObject *source, GAsyncResult *res, gpointer user_data)
     return;
   }
 
-  /* Row 0 is "Automatic"; row i + 1 is known mechanism i. Only mechanisms
-   * with a verdict are touched: "untested" keeps the previous state. */
+  /* Row i is known mechanism i. Only mechanisms with a verdict are
+   * touched: "untested" keeps the previous state. */
   model = gtk_combo_box_get_model (GTK_COMBO_BOX (self->auth_type_combo));
   selected = auth_type_dup_selected (self);
   valid = gtk_tree_model_get_iter_first (model, &iter);
-  if (valid)
-    valid = gtk_tree_model_iter_next (model, &iter);   /* skip "Automatic" */
   for (; valid && idx < MAX_MECHS; valid = gtk_tree_model_iter_next (model, &iter), idx++)
     if (r->states[idx] == PROBE_OK || r->states[idx] == PROBE_UNSUPPORTED)
       gtk_list_store_set (GTK_LIST_STORE (model), &iter, AUTH_COL_STRUCK,
@@ -1002,13 +1025,29 @@ check_types_done (GObject *source, GAsyncResult *res, gpointer user_data)
   else if (r->no_credentials)
     g_string_append_printf (msg, " %s",
       _("Some types could not be tried: no password or token available."));
-  if (selected != NULL) {
+  {
     const gchar * const *mechs = sieve_sasl_known_mechanisms ();
+    const gchar *best = NULL;
 
-    for (gsize i = 0; mechs[i] != NULL && i < MAX_MECHS; i++)
-      if (g_str_equal (mechs[i], selected) && r->states[i] == PROBE_UNSUPPORTED)
-        g_string_append_printf (msg, " %s",
-          _("The selected type does not work with this server."));
+    /* known_mechs[] is ordered by decreasing preference (i.e. security,
+     * see sieve-sasl.c): the first one that worked is the safest choice. */
+    for (gsize i = 0; mechs[i] != NULL && i < MAX_MECHS && best == NULL; i++)
+      if (r->states[i] == PROBE_OK)
+        best = mechs[i];
+
+    if (best != NULL) {
+      if (g_strcmp0 (selected, best) != 0)
+        auth_type_select (self, best);
+      /* Translators: %s is a SASL mechanism name, e.g. SCRAM-SHA-256. */
+      g_string_append_c (msg, ' ');
+      g_string_append_printf (msg, _("Selected the most secure working type: %s."),
+                              best);
+    } else if (selected != NULL) {
+      for (gsize i = 0; mechs[i] != NULL && i < MAX_MECHS; i++)
+        if (g_str_equal (mechs[i], selected) && r->states[i] == PROBE_UNSUPPORTED)
+          g_string_append_printf (msg, " %s",
+            _("The selected type does not work with this server."));
+    }
   }
   if (r->gssapi_error != NULL) {
     g_string_append_c (msg, ' ');
@@ -1257,6 +1296,8 @@ sieve_config_page_commit_changes (EMailConfigPage *page,
    * not. */
   cfg->gssapi_canonicalize_hostname = gtk_toggle_button_get_active (
     GTK_TOGGLE_BUTTON (self->gssapi_canonicalize_check));
+  cfg->gssapi_fallback = gtk_toggle_button_get_active (
+    GTK_TOGGLE_BUTTON (self->gssapi_fallback_check));
   {
     const gchar *sep =
       gtk_entry_get_text (GTK_ENTRY (self->folder_separator_entry));
@@ -1452,6 +1493,15 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
       "\"gssapi-hostname\" in the plugin's configuration file -- not "
       "exposed here, and always takes priority over this checkbox."));
 
+  self->gssapi_fallback_check =
+    gtk_check_button_new_with_label (_("Fall back to another type if GSSAPI fails"));
+  gtk_widget_set_tooltip_text (
+    self->gssapi_fallback_check,
+    _("When the type above is GSSAPI and Kerberos authentication fails "
+      "(for example an expired ticket), tries once more with the most "
+      "secure other type the server offers, using the password. "
+      "Uncheck to use GSSAPI only."));
+
   self->password_label = gtk_label_new (_("Password:"));
   gtk_label_set_xalign (GTK_LABEL (self->password_label), 1.0);
   self->password_entry = gtk_entry_new ();
@@ -1577,6 +1627,7 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
   }
   gtk_grid_attach (GTK_GRID (grid), self->forget_status, 1, 3, 3, 1);
   gtk_grid_attach (GTK_GRID (grid), self->gssapi_canonicalize_check, 1, 4, 3, 1);
+  gtk_grid_attach (GTK_GRID (grid), self->gssapi_fallback_check, 1, 5, 3, 1);
 
   /* "Connectivity" section: "Test" button that attempts a ManageSieve
    * connection + authentication with the entered values (without
@@ -1616,6 +1667,8 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
   g_signal_connect_swapped (self->encryption_combo, "changed",
                             G_CALLBACK (sieve_config_page_connection_changed), self);
   g_signal_connect_swapped (self->auth_type_combo, "changed",
+                            G_CALLBACK (sieve_config_page_auth_type_changed), self);
+  g_signal_connect_swapped (self->gssapi_fallback_check, "toggled",
                             G_CALLBACK (e_mail_config_page_changed), self);
   g_signal_connect_swapped (self->password_entry, "changed",
                             G_CALLBACK (sieve_config_page_connection_changed), self);
@@ -1633,6 +1686,19 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
                     G_CALLBACK (sieve_config_page_test_clicked), self);
   g_signal_connect (self->detect_separator_button, "clicked",
                     G_CALLBACK (sieve_config_page_detect_separator_clicked), self);
+
+  /* No type saved yet (new account, or one configured before the
+   * "Automatic" entry was removed): check the supported types right
+   * away, which selects the most secure working one. Until then (or if
+   * nothing could be verified), connections keep negotiating
+   * automatically (auth-mechanism absent). */
+  {
+    g_autofree gchar *mech = auth_type_dup_selected (self);
+    const gchar *host = gtk_entry_get_text (GTK_ENTRY (self->host_entry));
+
+    if (mech == NULL && host != NULL && *host != '\0')
+      sieve_config_page_check_types_clicked (NULL, self);
+  }
 
   gtk_widget_show_all (GTK_WIDGET (self));
   return GTK_WIDGET (self);

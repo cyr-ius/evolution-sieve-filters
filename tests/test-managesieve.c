@@ -25,6 +25,9 @@
  *                         canonical name instead of requiring it typed by
  *                         hand (mirrors Evolution/Camel's own behavior
  *                         for IMAP); ignored if --gssapi-hostname is set
+ *   --gssapi-fallback     with --mech GSSAPI: if GSSAPI fails, retry once
+ *                         with automatic negotiation (GSSAPI excluded),
+ *                         like the automatic mode always does
  *   --oauth2-token TOK    OAuth2 access token (for OAUTHBEARER / XOAUTH2);
  *                         otherwise read from $SIEVE_OAUTH2_TOKEN
  *   --starttls           force StartTLS instead of implicit TLS
@@ -112,6 +115,7 @@ main (int argc, char **argv)
   gchar *authzid = NULL;
   gchar *gssapi_hostname = NULL;
   gboolean gssapi_canonicalize_hostname = FALSE;
+  gboolean gssapi_fallback = FALSE;
   gchar *oauth2_token = NULL;
   gboolean starttls_flag = FALSE;
   gint timeout = SIEVE_MANAGESIEVE_DEFAULT_TIMEOUT_SECONDS;
@@ -133,6 +137,8 @@ main (int argc, char **argv)
     { "gssapi-canonicalize-hostname", 0, 0, G_OPTION_ARG_NONE, &gssapi_canonicalize_hostname,
       "GSSAPI: resolve --host's DNS canonical name automatically instead of "
       "--gssapi-hostname (ignored if --gssapi-hostname is set)", NULL },
+    { "gssapi-fallback", 0, 0, G_OPTION_ARG_NONE, &gssapi_fallback,
+      "With --mech GSSAPI: fall back to the next mechanism if GSSAPI fails", NULL },
     { "oauth2-token", 0, 0, G_OPTION_ARG_STRING, &oauth2_token, "OAuth2 token (OAUTHBEARER/XOAUTH2)", "TOK" },
     { "starttls", 0, 0, G_OPTION_ARG_NONE, &starttls_flag, "Use StartTLS instead of implicit TLS", NULL },
     { "timeout", 0, 0, G_OPTION_ARG_INT, &timeout, "Network timeout in seconds (0 = unlimited, default 30)", "SECONDS" },
@@ -198,6 +204,7 @@ main (int argc, char **argv)
       .oauth2_token = oauth2_token,
       .gssapi_hostname = gssapi_hostname,
       .gssapi_canonicalize_hostname = gssapi_canonicalize_hostname,
+      .gssapi_fallback = gssapi_fallback,
     };
     const gchar *sasl_cap = sieve_managesieve_client_get_sasl_capability (client);
 

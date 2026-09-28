@@ -12,6 +12,8 @@
 *   gssapi-hostname=...  (absent / "" => use `host`; advanced GSSAPI override)
 *   gssapi-canonicalize-hostname=... (absent / false => off; automatic
 *                          alternative to gssapi-hostname, ignored if it's set)
+*   gssapi-fallback=...  (absent => true; forced GSSAPI falls back to
+*                          the next working mechanism if it fails)
 *   folder-separator=... (absent / "" => '/'; the account's real IMAP
 *                          hierarchy separator, issue #3)
  *
@@ -183,6 +185,7 @@ sieve_config_load_for_account (const gchar *account_uid)
   config->auto_connect = TRUE;
   config->remember_password = TRUE;
   config->gssapi_canonicalize_hostname = TRUE;
+  config->gssapi_fallback = TRUE;
 
   if (!g_key_file_has_group (kf, group))
     return config;
@@ -194,6 +197,9 @@ sieve_config_load_for_account (const gchar *account_uid)
   if (g_key_file_has_key (kf, group, "gssapi-canonicalize-hostname", NULL))
     config->gssapi_canonicalize_hostname =
       g_key_file_get_boolean (kf, group, "gssapi-canonicalize-hostname", NULL);
+  if (g_key_file_has_key (kf, group, "gssapi-fallback", NULL))
+    config->gssapi_fallback =
+      g_key_file_get_boolean (kf, group, "gssapi-fallback", NULL);
 
   {
     g_autofree gchar *sep = dup_string_key (kf, group, "folder-separator");
@@ -253,6 +259,7 @@ sieve_config_save_for_account (const SieveConfig *config,
     g_key_file_remove_key (kf, group, "gssapi-hostname", NULL);
   g_key_file_set_boolean (kf, group, "gssapi-canonicalize-hostname",
                           config->gssapi_canonicalize_hostname);
+  g_key_file_set_boolean (kf, group, "gssapi-fallback", config->gssapi_fallback);
   if (config->folder_separator != '\0' && config->folder_separator != '/') {
     gchar sep[2] = { config->folder_separator, '\0' };
     g_key_file_set_string (kf, group, "folder-separator", sep);

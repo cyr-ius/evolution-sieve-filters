@@ -50,6 +50,10 @@ typedef struct {
                              * does out of the box, so ManageSieve behaves
                              * the same way unless the "Kerberos hostname:"
                              * field is filled in (which always wins). */
+  gboolean gssapi_fallback; /* forced GSSAPI only: fall back to the next
+                             * working mechanism if it fails (e.g. expired
+                             * ticket) — see SieveManageSieveAuth. TRUE by
+                             * default (sieve_config_load_for_account()). */
   gchar    folder_separator; /* the account's REAL IMAP hierarchy
                               * separator (often '.' for Dovecot/
                               * Maildir++, sometimes '/'); 0 = not set,

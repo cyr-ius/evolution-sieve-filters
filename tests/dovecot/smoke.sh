@@ -219,6 +219,14 @@ if [ "$HAVE_KDC" = 1 ] && grep -q "^auth_mechanisms.*gssapi" "$FIX/run/dovecot.c
   echo "$out" | grep -q "SASL authentication failed (GSSAPI)" \
     || { echo "FAILED: forced GSSAPI should have failed with a GSSAPI error" >&2; exit 1; }
 
+  echo; echo "===> SASL GSSAPI forced and failing, with --gssapi-fallback (should fall back)"
+  out="$(KRB5CCNAME="$BROKEN_CC" KRB5_CONFIG="$BROKEN_KRB5" "$BIN" "${broken_creds[@]}" --mech GSSAPI --gssapi-fallback 2>&1)"
+  echo "$out"
+  echo "$out" | grep -q "falling back" \
+    || { echo "FAILED: --gssapi-fallback didn't fall back" >&2; exit 1; }
+  echo "$out" | grep -q "mechanism: SCRAM-SHA-256)" \
+    || { echo "FAILED: fallback didn't authenticate with SCRAM-SHA-256" >&2; exit 1; }
+
   KRB5CCNAME="$BROKEN_CC" kdestroy >/dev/null 2>&1 || true
   kdestroy >/dev/null 2>&1 || true
   unset KRB5_CONFIG KRB5CCNAME

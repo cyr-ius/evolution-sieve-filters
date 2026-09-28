@@ -100,13 +100,21 @@ typedef struct {
                                  * automatic alternative to gssapi_hostname
                                  * — see SieveSaslCredentials in
                                  * sieve-sasl.h. */
+  gboolean     gssapi_fallback; /* forced GSSAPI only: if it fails, retry
+                                 * once with automatic negotiation
+                                 * (GSSAPI excluded), exactly like the
+                                 * automatic mode always does — e.g. an
+                                 * expired Kerberos ticket falls back to
+                                 * SCRAM with the password. Ignored for
+                                 * any other forced mechanism. */
 } SieveManageSieveAuth;
 
 /* Authenticates the session (AUTHENTICATE, RFC 5804 §2.1).
  *   mechanism == NULL: automatic negotiation — the best mechanism common
  *     to the server's SASL capabilities and what `auth` allows.
  *   mechanism != NULL: forces this mechanism (fails if not advertised by
- *     the server or not supported).
+ *     the server or not supported). Never replaced, except GSSAPI when
+ *     `auth->gssapi_fallback` is set (see SieveManageSieveAuth).
  * Call after sieve_managesieve_client_connect_sync(), from a worker
  * thread. On authentication failure, the error carries the code
  * SIEVE_MANAGESIEVE_ERROR_AUTH. */

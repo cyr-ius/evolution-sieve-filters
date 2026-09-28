@@ -87,6 +87,7 @@ test_account_round_trip_and_isolation (void)
     .auth_mechanism = (gchar *) "SCRAM-SHA-256",
     .gssapi_hostname = (gchar *) "server.example.com",
     .gssapi_canonicalize_hostname = TRUE,
+    .gssapi_fallback = TRUE,
     .folder_separator = '.',
   };
   SieveConfig *read;
@@ -107,6 +108,7 @@ test_account_round_trip_and_isolation (void)
   g_assert_true (read->auto_connect);
   g_assert_false (read->remember_password);
   g_assert_false (read->gssapi_canonicalize_hostname);  /* explicitly saved as FALSE above */
+  g_assert_false (read->gssapi_fallback);               /* same */
   g_assert_cmpint (read->folder_separator, ==, '\0');   /* default: '/' */
   g_assert_cmpint (sieve_config_get_effective_folder_separator (read), ==, '/');
   sieve_config_free (read);
@@ -121,6 +123,7 @@ test_account_round_trip_and_isolation (void)
   g_assert_cmpstr (read->auth_mechanism, ==, "SCRAM-SHA-256");
   g_assert_cmpstr (read->gssapi_hostname, ==, "server.example.com");
   g_assert_true (read->gssapi_canonicalize_hostname);
+  g_assert_true (read->gssapi_fallback);
   g_assert_cmpint (read->folder_separator, ==, '.');
   g_assert_cmpint (sieve_config_get_effective_folder_separator (read), ==, '.');
   sieve_config_free (read);
@@ -151,6 +154,7 @@ test_account_round_trip_and_isolation (void)
   g_assert_null (read->host);
   g_assert_true (read->auto_connect);
   g_assert_true (read->gssapi_canonicalize_hostname);   /* on by default */
+  g_assert_true (read->gssapi_fallback);                /* on by default */
   sieve_config_free (read);
 }
 

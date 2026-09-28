@@ -100,6 +100,17 @@ failure). See `tests/secret/README.md`.
   (never for password mechanisms — no multiplied failed logins — and never
   for a forced `--mech`). Covered by the "GSSAPI failing" cases of `smoke.sh`
   (broken `KRB5_CONFIG` + TGT-only ccache) and by `/sasl/select/exclude-*`.
+  **Exception, opt-out**: a *forced* GSSAPI also falls back the same way
+  when `SieveManageSieveAuth.gssapi_fallback` is set (`--gssapi-fallback`
+  in `test-managesieve`; `gssapi-fallback` in `sieve-config`, **TRUE by
+  default**; the "Fall back to another type if GSSAPI fails" checkbox under
+  "Canonicalize automatically (DNS)" in `sieve-config-page.c`, only
+  sensitive while the "Type" list is on GSSAPI). This exists because
+  "Check Supported Types" selects the most secure working type — GSSAPI
+  whenever a ticket was present at check time — and an expired ticket
+  would otherwise break the connection. The type check itself never sets
+  it (it must judge GSSAPI on its own). Covered by `smoke.sh`'s "forced
+  and failing, with --gssapi-fallback" case.
 
 - **GSSAPI + DNS alias/CNAME (issue #2)**: the target service principal
   ("sieve/\<hostname\>") is normally built from the connection host, but a
@@ -217,15 +228,26 @@ src/sieve-config-page.[ch]         "Sieve Filters" page of the account
                                    (host/port/user/TLS) + auto-connect,
                                    written to sieve-config; Authentication
                                    section: "Type" list (forced SASL
-                                   mechanism, default Automatic, stored as
-                                   `auth-mechanism`) + "Check Supported
+                                   mechanism, stored as `auth-mechanism`;
+                                   no "Automatic" entry — when nothing is
+                                   saved yet the list is empty, the type
+                                   check below runs by itself when the
+                                   page opens, and connections keep
+                                   negotiating automatically until a type
+                                   is saved) + "Check Supported
                                    Types" button (probes each mechanism on
                                    its own connection, strikes through the
                                    failing ones; a failure only counts if
                                    another password/OAuth mechanism
                                    succeeded, and the run stops after 2
                                    ambiguous failures, to avoid tripping
-                                   brute-force protection) + "Folders"
+                                   brute-force protection; at the end the
+                                   most secure working type is selected,
+                                   first in sieve_sasl_known_mechanisms()
+                                   order) + "Fall back to another type if
+                                   GSSAPI fails" checkbox (stored as
+                                   `gssapi-fallback`, ON by default) +
+                                   "Folders"
                                    section: "Folder separator:" field
                                    (per-account `folder-separator`,
                                    default '/') + "Detect Automatically"
