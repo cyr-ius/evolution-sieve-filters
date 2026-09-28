@@ -242,9 +242,14 @@ src/sieve-config-page.[ch]         "Sieve Filters" page of the account
                                    succeeded, and the run stops after 2
                                    ambiguous failures, to avoid tripping
                                    brute-force protection; at the end the
-                                   most secure working type is selected,
-                                   first in sieve_sasl_known_mechanisms()
-                                   order) + "Fall back to another type if
+                                   selected type is kept unless it failed,
+                                   otherwise the most secure working one
+                                   is selected, first in
+                                   sieve_sasl_known_mechanisms() order;
+                                   result on a visible status line under
+                                   "Type" — this button replaced the old
+                                   "Connectivity" section's "Test"
+                                   button) + "Fall back to another type if
                                    GSSAPI fails" checkbox (stored as
                                    `gssapi-fallback`, ON by default;
                                    like the "Canonicalize" checkbox

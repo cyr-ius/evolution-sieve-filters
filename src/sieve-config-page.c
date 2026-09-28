@@ -86,6 +86,7 @@ struct _SieveConfigPage {
                                     * sieve_sasl_known_mechanisms()); model
                                     * columns: see AUTH_COL_* */
   GtkWidget *check_types_button;    /* "Check Supported Types" */
+  GtkWidget *check_types_status;    /* its result line, below the "Type" row */
   GtkWidget *gssapi_canonicalize_check; /* "Canonicalize automatically
                                     * (DNS)": automatic alternative to
                                     * gssapi-hostname (issue #2), which is
@@ -110,13 +111,12 @@ struct _SieveConfigPage {
                                         * separator (empty = '/'); issue #3 */
   GtkWidget *detect_separator_button;  /* "Detect Automatically" */
   GtkWidget *detect_separator_status;  /* result line below the field */
-  GtkWidget *test_button;           /* "Connectivity" section: "Test" button */
-  GtkWidget *test_status;           /* result line below the button */
-  GCancellable *test_cancellable;   /* cancels the running test / type check
-                                    * (dispose) */
-  gboolean   test_in_flight;        /* a test or type check is running on a
-                                    * worker thread (the two buttons are
-                                    * disabled together) */
+  GCancellable *test_cancellable;   /* cancels the running type check /
+                                    * separator detection (dispose) */
+  gboolean   test_in_flight;        /* a type check or separator detection
+                                    * is running on a worker thread (the
+                                    * network buttons are disabled
+                                    * together) */
   gboolean   account_is_oauth2;     /* token managed by Evolution: no password */
 };
 
@@ -442,27 +442,22 @@ sieve_config_page_forget_password (GtkButton *button, gpointer user_data)
                         "(it will be stored on \"Apply\")."));
 }
 
-/* --- "Connectivity" section + "Type" check: shared worker plumbing ----- *
+/* --- Network checks: shared worker plumbing -------------------------- *
  *
- * "Test" attempts a ManageSieve connection + authentication with the
- * currently entered values (nothing is saved) and shows the result;
- * "Check Supported Types" probes each SASL mechanism the same way.
- * All networking goes through a GTask on a worker thread — never the
- * GTK loop, nor sieve_secret_* / sieve_account_* on the main thread. */
+ * "Check Supported Types" probes each SASL mechanism with the currently
+ * entered values (nothing is saved). All networking goes through a GTask
+ * on a worker thread — never the GTK loop, nor sieve_secret_* /
+ * sieve_account_* on the main thread. */
 typedef struct {
   gchar   *host;
   guint16  port;
   gboolean implicit_tls;
   gchar   *user;
   gchar   *password;            /* entered; empty -> keyring then IMAP password (EDS) */
-  gchar   *auth_mechanism;      /* forced mechanism, NULL = automatic ("Test" only) */
   gchar   *gssapi_hostname;     /* GSSAPI service principal hostname override,
                                 * NULL = use `host` */
   gboolean gssapi_canonicalize_hostname; /* automatic alternative to
                                 * gssapi_hostname, ignored when it's set */
-  gboolean gssapi_fallback;     /* forced GSSAPI: fall back if it fails
-                                * ("Test" only — never for the type check,
-                                * which must judge GSSAPI on its own) */
   gboolean use_oauth2;
   gchar   *account_uid;         /* for EDS: OAuth2 token or account password */
   ESourceRegistry *registry;    /* ref transferred from the main thread */
@@ -475,7 +470,6 @@ test_conn_input_free (TestConnInput *in)
     return;
   g_free (in->host);
   g_free (in->user);
-  g_free (in->auth_mechanism);
   g_free (in->gssapi_hostname);
   if (in->password != NULL) {
     if (*in->password != '\0')
@@ -564,79 +558,29 @@ conn_client_connect (const TestConnInput *in, GCancellable *cancellable,
   return client;
 }
 
-static void
-test_conn_task_run (GTask *task, gpointer source_object, gpointer task_data,
-                    GCancellable *cancellable)
-{
-  TestConnInput *in = task_data;
-  GError *error = NULL;
-  SieveManageSieveClient *client;
-  ResolvedCreds rc = { 0 };
-  gchar *mech = NULL;          /* negotiated SASL mechanism, returned to the caller */
-
-  (void) source_object;
-
-  client = conn_client_connect (in, cancellable, &error);
-  if (client == NULL) {
-    g_task_return_error (task, error);
-    return;
-  }
-
-  if (resolve_creds (in, &rc, cancellable, &error)) {
-    SieveManageSieveAuth auth = { .authid = in->user,
-                                  .password = rc.password,
-                                  .oauth2_token = rc.token,
-                                  .gssapi_hostname = in->gssapi_hostname,
-                                  .gssapi_canonicalize_hostname =
-                                    in->gssapi_canonicalize_hostname,
-                                  .gssapi_fallback = in->gssapi_fallback };
-
-    if (sieve_managesieve_client_authenticate_sync (client, in->auth_mechanism,
-                                                    &auth, cancellable, &error))
-      mech = g_strdup (sieve_managesieve_client_get_auth_mechanism (client));
-  }
-
-  resolved_creds_clear (&rc);
-  sieve_managesieve_client_disconnect (client);
-  g_object_unref (client);
-
-  if (error != NULL)
-    g_task_return_error (task, error);
-  else
-    g_task_return_pointer (task, mech, g_free);
-}
-
 /* All network buttons are disabled while one of them runs. */
 static void
 set_network_busy (SieveConfigPage *self, gboolean busy)
 {
   self->test_in_flight = busy;
-  gtk_widget_set_sensitive (self->test_button, !busy);
   gtk_widget_set_sensitive (self->check_types_button, !busy);
   gtk_widget_set_sensitive (self->detect_separator_button,
                             !busy && !self->account_is_oauth2
                               && self->mail_session != NULL);
 }
 
-/* The type check has no result line of its own: its outcome goes into
- * the button's tooltip (the struck-through entries are the visible
- * result). An empty text restores the default tooltip. */
+/* Result line of the type check (NULL / "" clears it). */
 static void
 check_types_set_status (SieveConfigPage *self, const gchar *text)
 {
-  gtk_widget_set_tooltip_text (
-    self->check_types_button,
-    (text != NULL && *text != '\0')
-      ? text
-      : _("Tries each authentication type with the server, strikes "
-          "through those that do not work and selects the most secure "
-          "one that does. Uses the settings above, without saving them."));
+  gtk_label_set_text (GTK_LABEL (self->check_types_status),
+                      text != NULL ? text : "");
 }
 
 /* Snapshot of the widgets for a worker thread; NULL (+ message on the
- * requesting button's status) if no server address was entered. */
+ * type check's status line) if no server address was entered. */
 static TestConnInput *
-conn_input_from_widgets (SieveConfigPage *self, gboolean for_check)
+conn_input_from_widgets (SieveConfigPage *self)
 {
   const gchar *host = gtk_entry_get_text (GTK_ENTRY (self->host_entry));
   const gchar *user = gtk_entry_get_text (GTK_ENTRY (self->user_entry));
@@ -645,11 +589,7 @@ conn_input_from_widgets (SieveConfigPage *self, gboolean for_check)
   TestConnInput *in;
 
   if (host == NULL || *host == '\0') {
-    if (for_check)
-      check_types_set_status (self, _("Please enter the server address first."));
-    else
-      gtk_label_set_text (GTK_LABEL (self->test_status),
-                          _("Please enter the server address first."));
+    check_types_set_status (self, _("Please enter the server address first."));
     return NULL;
   }
 
@@ -663,10 +603,9 @@ conn_input_from_widgets (SieveConfigPage *self, gboolean for_check)
     gtk_combo_box_get_active (GTK_COMBO_BOX (self->encryption_combo))
       == SIEVE_ENC_IMPLICIT;
   in->user = g_strdup (user != NULL ? user : "");
-  in->auth_mechanism = auth_type_dup_selected (self);
   /* gssapi-hostname isn't a GUI field (advanced, ini-only escape hatch —
-   * see the struct comment): re-read it from the saved profile so "Test"
-   * / "Check Supported Types" reflect what a real connection would
+   * see the struct comment): re-read it from the saved profile so "Check
+   * Supported Types" reflects what a real connection would
    * actually use. */
   {
     SieveConfig *saved =
@@ -676,8 +615,6 @@ conn_input_from_widgets (SieveConfigPage *self, gboolean for_check)
   }
   in->gssapi_canonicalize_hostname = gtk_toggle_button_get_active (
     GTK_TOGGLE_BUTTON (self->gssapi_canonicalize_check));
-  in->gssapi_fallback = gtk_toggle_button_get_active (
-    GTK_TOGGLE_BUTTON (self->gssapi_fallback_check));
   /* The password field is visible only after "Forget"; otherwise
    * resolution is left to fall back to the keyring then the account's
    * IMAP password. */
@@ -707,78 +644,16 @@ network_task_start (SieveConfigPage *self, gpointer in, GDestroyNotify in_free,
   g_object_unref (task);
 }
 
-static void
-test_conn_done (GObject *source, GAsyncResult *res, gpointer user_data)
-{
-  SieveConfigPage *self = SIEVE_CONFIG_PAGE (user_data);
-  GError *error = NULL;
-  gchar *mech;
-
-  (void) source;
-
-  mech = g_task_propagate_pointer (G_TASK (res), &error);
-
-  /* Page being destroyed (account editor closed during the test): the
-   * GTask's GCancellable was canceled in dispose. Don't touch any
-   * widget — they may already be destroyed. */
-  if (g_cancellable_is_cancelled (g_task_get_cancellable (G_TASK (res)))) {
-    g_clear_error (&error);
-    g_free (mech);
-    g_object_unref (self);
-    return;
-  }
-
-  set_network_busy (self, FALSE);
-  g_clear_object (&self->test_cancellable);
-
-  if (error != NULL) {
-    g_autofree gchar *msg = g_strdup_printf (_("Failed: %s"), error->message);
-    gtk_label_set_text (GTK_LABEL (self->test_status), msg);
-    g_error_free (error);
-  } else if (mech != NULL && *mech != '\0') {
-    g_autofree gchar *msg =
-      g_strdup_printf (_("Connection and authentication succeeded "
-                         "(SASL mechanism: %s)."), mech);
-    gtk_label_set_text (GTK_LABEL (self->test_status), msg);
-    /* Proven to work: must not stay struck from an earlier type check. */
-    auth_type_set_struck (self, mech, FALSE);
-  } else {
-    gtk_label_set_text (GTK_LABEL (self->test_status),
-                        _("Connection and authentication succeeded."));
-  }
-
-  g_free (mech);
-  g_object_unref (self);   /* ref taken when launching the test */
-}
-
-static void
-sieve_config_page_test_clicked (GtkButton *button, gpointer user_data)
-{
-  SieveConfigPage *self = SIEVE_CONFIG_PAGE (user_data);
-  TestConnInput *in;
-
-  (void) button;
-
-  if (self->test_in_flight)
-    return;
-
-  in = conn_input_from_widgets (self, FALSE);
-  if (in == NULL)
-    return;
-
-  gtk_label_set_text (GTK_LABEL (self->test_status), _("Testing..."));
-  network_task_start (self, in, (GDestroyNotify) test_conn_input_free,
-                     test_conn_done, test_conn_task_run);
-}
-
 /* --- "Check Supported Types" button ----------------------------------- *
  *
  * Connects, reads the server's SASL capability, then tries to
  * authenticate with each mechanism this module knows (one fresh
  * connection per attempt) and strikes through in the "Type" list those
- * that don't work, then selects the most secure one that does
- * (first working entry of sieve_sasl_known_mechanisms(), which is
- * ordered by decreasing preference). A selected GSSAPI still falls back
+ * that don't work. The selected type is kept unless it failed;
+ * otherwise (or when none is selected) the most secure working one is
+ * selected (first working entry of sieve_sasl_known_mechanisms(), which
+ * is ordered by decreasing preference). The outcome is shown on the
+ * status line below the "Type" row. A selected GSSAPI still falls back
  * to the next type at connection time when the "Fall back to another
  * type if GSSAPI fails" checkbox is on (SieveManageSieveAuth.gssapi_fallback).
  *
@@ -1036,25 +911,29 @@ check_types_done (GObject *source, GAsyncResult *res, gpointer user_data)
   {
     const gchar * const *mechs = sieve_sasl_known_mechanisms ();
     const gchar *best = NULL;
+    gboolean selected_failed = FALSE;
 
     /* known_mechs[] is ordered by decreasing preference (i.e. security,
      * see sieve-sasl.c): the first one that worked is the safest choice. */
-    for (gsize i = 0; mechs[i] != NULL && i < MAX_MECHS && best == NULL; i++)
-      if (r->states[i] == PROBE_OK)
+    for (gsize i = 0; mechs[i] != NULL && i < MAX_MECHS; i++) {
+      if (best == NULL && r->states[i] == PROBE_OK)
         best = mechs[i];
+      if (selected != NULL && g_str_equal (mechs[i], selected)
+          && r->states[i] == PROBE_UNSUPPORTED)
+        selected_failed = TRUE;
+    }
 
-    if (best != NULL) {
-      if (g_strcmp0 (selected, best) != 0)
-        auth_type_select (self, best);
+    /* A type chosen by hand (e.g. PLAIN on purpose) is kept unless it
+     * failed: only an empty or failing choice is replaced. */
+    if ((selected == NULL || selected_failed) && best != NULL) {
+      auth_type_select (self, best);
       /* Translators: %s is a SASL mechanism name, e.g. SCRAM-SHA-256. */
       g_string_append_c (msg, ' ');
       g_string_append_printf (msg, _("Selected the most secure working type: %s."),
                               best);
-    } else if (selected != NULL) {
-      for (gsize i = 0; mechs[i] != NULL && i < MAX_MECHS; i++)
-        if (g_str_equal (mechs[i], selected) && r->states[i] == PROBE_UNSUPPORTED)
-          g_string_append_printf (msg, " %s",
-            _("The selected type does not work with this server."));
+    } else if (selected_failed) {
+      g_string_append_printf (msg, " %s",
+        _("The selected type does not work with this server."));
     }
   }
   if (r->gssapi_error != NULL) {
@@ -1079,7 +958,7 @@ sieve_config_page_check_types_clicked (GtkButton *button, gpointer user_data)
   if (self->test_in_flight)
     return;
 
-  in = conn_input_from_widgets (self, TRUE);
+  in = conn_input_from_widgets (self);
   if (in == NULL)
     return;
 
@@ -1483,7 +1362,15 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
   self->auth_type_combo = auth_type_combo_new ();
   self->check_types_button =
     gtk_button_new_with_label (_("Check Supported Types"));
-  check_types_set_status (self, NULL);
+  gtk_widget_set_tooltip_text (
+    self->check_types_button,
+    _("Tries each authentication type with the server and strikes "
+      "through those that do not work. The selected type is kept if it "
+      "works; otherwise the most secure working one is selected. Uses "
+      "the settings above, without saving them."));
+  self->check_types_status = gtk_label_new ("");
+  gtk_label_set_xalign (GTK_LABEL (self->check_types_status), 0.0);
+  gtk_label_set_line_wrap (GTK_LABEL (self->check_types_status), TRUE);
 
   self->gssapi_canonicalize_check =
     gtk_check_button_new_with_label (_("Canonicalize automatically (DNS)"));
@@ -1623,47 +1510,24 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
                         FALSE, FALSE, 0);
     add_field (GTK_GRID (grid), 0, _("Type:"), type_box, 3);
   }
-  add_field (GTK_GRID (grid), 1, _("Username:"), self->user_entry, 3);
-  gtk_grid_attach (GTK_GRID (grid), self->password_label, 0, 2, 1, 1);
+  gtk_grid_attach (GTK_GRID (grid), self->check_types_status, 1, 1, 3, 1);
+  add_field (GTK_GRID (grid), 2, _("Username:"), self->user_entry, 3);
+  gtk_grid_attach (GTK_GRID (grid), self->password_label, 0, 3, 1, 1);
   {
     GtkWidget *auth_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_box_pack_start (GTK_BOX (auth_box), self->password_entry,
                         TRUE, TRUE, 0);
     gtk_box_pack_start (GTK_BOX (auth_box), self->forget_button,
                         FALSE, FALSE, 0);
-    gtk_grid_attach (GTK_GRID (grid), auth_box, 1, 2, 3, 1);
+    gtk_grid_attach (GTK_GRID (grid), auth_box, 1, 3, 3, 1);
   }
-  gtk_grid_attach (GTK_GRID (grid), self->forget_status, 1, 3, 3, 1);
-  gtk_grid_attach (GTK_GRID (grid), self->gssapi_canonicalize_check, 1, 4, 3, 1);
-  gtk_grid_attach (GTK_GRID (grid), self->gssapi_fallback_check, 1, 5, 3, 1);
+  gtk_grid_attach (GTK_GRID (grid), self->forget_status, 1, 4, 3, 1);
+  gtk_grid_attach (GTK_GRID (grid), self->gssapi_canonicalize_check, 1, 5, 3, 1);
+  gtk_grid_attach (GTK_GRID (grid), self->gssapi_fallback_check, 1, 6, 3, 1);
   /* Visibility driven by the "Type" list (update_gssapi_options()):
    * gtk_widget_show_all must not reveal them. */
   gtk_widget_set_no_show_all (self->gssapi_canonicalize_check, TRUE);
   gtk_widget_set_no_show_all (self->gssapi_fallback_check, TRUE);
-
-  /* "Connectivity" section: "Test" button that attempts a ManageSieve
-   * connection + authentication with the entered values (without
-   * saving anything) and shows the result on the status line.
-   *
-   * Reduced top margin (6 instead of 12): the preceding
-   * "Authentication" section ends on the "forget_status" status line
-   * (a wrapping label, empty by default) which already takes up one
-   * line's height; without this compensation the spacing before
-   * "Connectivity" looks larger than that of the "Security" /
-   * "Authentication" sections. */
-  add_section_header (GTK_BOX (content), _("Connectivity"), 0);
-  grid = add_section_grid (GTK_BOX (content));
-  self->test_button = gtk_button_new_with_label (_("Test"));
-  gtk_widget_set_halign (self->test_button, GTK_ALIGN_START);
-  gtk_widget_set_tooltip_text (
-    self->test_button,
-    _("Attempts a connection and authentication to the ManageSieve "
-      "server with the settings above, without saving them."));
-  gtk_grid_attach (GTK_GRID (grid), self->test_button, 0, 0, 2, 1);
-  self->test_status = gtk_label_new ("");
-  gtk_label_set_xalign (GTK_LABEL (self->test_status), 0.0);
-  gtk_label_set_line_wrap (GTK_LABEL (self->test_status), TRUE);
-  gtk_grid_attach (GTK_GRID (grid), self->test_status, 0, 1, 2, 1);
 
   /* Populate the fields from the sieve-config profile BEFORE
    * connecting the "changed" signals (the account editor does not
@@ -1694,8 +1558,6 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
                     G_CALLBACK (sieve_config_page_forget_password), self);
   g_signal_connect (self->check_types_button, "clicked",
                     G_CALLBACK (sieve_config_page_check_types_clicked), self);
-  g_signal_connect (self->test_button, "clicked",
-                    G_CALLBACK (sieve_config_page_test_clicked), self);
   g_signal_connect (self->detect_separator_button, "clicked",
                     G_CALLBACK (sieve_config_page_detect_separator_clicked), self);
 
