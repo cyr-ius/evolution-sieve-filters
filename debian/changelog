@@ -1,3 +1,22 @@
+evolution-sieve-filters (0.5.0-1) unstable; urgency=medium
+
+  * Sieve scripts are now read with a full RFC 5228 parser. Multi-line
+    "text:" strings (vacation messages...) are handled properly: an
+    unbalanced quote inside one no longer forces the whole script into
+    raw text mode, and a closing brace inside one no longer swallows the
+    next rule. Syntax errors now report their line and column.
+  * Visual editor: conditions can be negated ("does not contain", "is
+    not", size "is at most" / "is at least"...) and can test whether a
+    header exists or not.
+  * Rules the visual editor would have silently altered are now kept
+    verbatim (locked) instead: setflag, fileinto/redirect :copy,
+    fileinto :flags, addflag on a variable, address/envelope tests,
+    "true" inside anyof/allof, and an if/elsif/else chain.
+  * A grammatically invalid command no longer prevents the rest of the
+    script from being edited visually: it is kept verbatim on its own.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sat, 03 Oct 2026 12:17:05 +0000
+
 evolution-sieve-filters (0.4.10-1) unstable; urgency=medium
 
   * ManageSieve client: hardened the server response parser. Response
