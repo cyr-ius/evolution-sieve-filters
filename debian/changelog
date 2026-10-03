@@ -1,3 +1,18 @@
+evolution-sieve-filters (0.4.10-1) unstable; urgency=medium
+
+  * ManageSieve client: hardened the server response parser. Response
+    lines, literals, whole responses and SASL round trips are now bounded,
+    and malformed data (NUL bytes, invalid UTF-8, bad base64, unexpected
+    LISTSCRIPTS/GETSCRIPT/SASL replies) is rejected as a protocol error
+    instead of being guessed at.
+  * Fixed GETSCRIPT returning every script with one extra trailing
+    newline, and a server error sent as a literal ("NO {N}") leaving a
+    stray empty line for the next command.
+  * Server error messages now show the server's text rather than the raw
+    status line.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sat, 03 Oct 2026 11:31:03 +0000
+
 evolution-sieve-filters (0.4.9-1) unstable; urgency=medium
 
   * Sieve editor: switching from the raw text tab back to the visual
