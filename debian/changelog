@@ -1,3 +1,16 @@
+evolution-sieve-filters (0.6.1-1) unstable; urgency=medium
+
+  * A rule with a single condition is saved without a redundant
+    "allof (...)" around it.
+  * Comments before the require line (such as a commented-out older
+    require) are kept, and no longer cause a second require line to be
+    added.
+  * Scripts declaring the older "imapflags" extension keep it for the
+    flag actions instead of "imap4flags", which servers such as older
+    Cyrus versions reject.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sat, 03 Oct 2026 14:00:00 +0000
+
 evolution-sieve-filters (0.6.0-1) unstable; urgency=medium
 
   * Visual editor: vacation auto-replies are now editable, with the
