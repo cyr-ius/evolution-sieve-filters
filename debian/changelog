@@ -1,3 +1,17 @@
+evolution-sieve-filters (0.6.2-1) unstable; urgency=medium
+
+  * Leaving the "Server" field empty in the account's "Sieve Filters"
+    tab now really uses the receiving (IMAP) server, as the page says:
+    the Sieve Filters dialog no longer reports "No ManageSieve server
+    configured", and a password entered there is found again when
+    connecting. A password saved while the field was empty must be
+    entered once more.
+  * Accounts using Kerberos (GSSAPI) for IMAP get GSSAPI pre-selected
+    as the Sieve authentication type, instead of an automatic check
+    that tried password types first.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sat, 03 Oct 2026 13:30:00 +0000
+
 evolution-sieve-filters (0.6.1-1) unstable; urgency=medium
 
   * A rule with a single condition is saved without a redundant
