@@ -112,6 +112,7 @@ sieve_rule_set_free (SieveRuleSet *set)
     return;
   g_ptr_array_unref (set->rules);
   g_clear_pointer (&set->extra_requires, g_ptr_array_unref);
+  g_free (set->preamble);
   g_free (set);
 }
 
@@ -305,6 +306,27 @@ append_action (GString *out, const SieveAction *a)
     default:
       break;
   }
+}
+
+/* A rule's conditions as one test: a lone condition is written as is,
+ * several are wrapped in "allof (...)" / "anyof (...)". RFC 5228 §5.1/5.2:
+ * allof/anyof of a single test is that test, so the wrapper would only
+ * be noise in a hand-maintained script. */
+static void
+append_conditions (GString *out, const SieveRule *r)
+{
+  if (r->conditions->len == 1) {
+    append_condition (out, g_ptr_array_index (r->conditions, 0));
+    return;
+  }
+  g_string_append_printf (out, "%s (",
+                          r->mode == SIEVE_MATCH_MODE_ANY ? "anyof" : "allof");
+  for (guint j = 0; j < r->conditions->len; j++) {
+    if (j > 0)
+      g_string_append (out, ", ");
+    append_condition (out, g_ptr_array_index (r->conditions, j));
+  }
+  g_string_append_c (out, ')');
 }
 
 /* Extensions whose need collect_requires() can decide on its own from the
@@ -527,6 +549,24 @@ sieve_rule_set_to_script (const SieveRuleSet *set)
         g_hash_table_add (req, g_strdup (ext));
     }
   }
+  /* "imapflags" (draft-melnikov-sieve-imapflags, what older servers
+   * such as Cyrus still speak) instead of RFC 5232's "imap4flags", if
+   * that's what the original script declared: the addflag/setflag/
+   * removeflag forms the model writes (a flag list, no variable name)
+   * mean the same under both, and a server that only knows the former
+   * rejects the whole script otherwise. */
+  if (set->extra_requires != NULL &&
+      g_hash_table_contains (req, "imap4flags") &&
+      !g_ptr_array_find_with_equal_func (set->extra_requires, "imap4flags",
+                                         g_str_equal, NULL) &&
+      g_ptr_array_find_with_equal_func (set->extra_requires, "imapflags",
+                                        g_str_equal, NULL))
+    g_hash_table_remove (req, "imap4flags");
+
+  /* Comments that preceded the original leading require, verbatim. */
+  if (set->preamble != NULL)
+    g_string_append (out, set->preamble);
+
   if (g_hash_table_size (req) > 0) {
     GList *keys = g_hash_table_get_keys (req);
     keys = g_list_sort (keys, (GCompareFunc) g_strcmp0);
@@ -565,27 +605,16 @@ sieve_rule_set_to_script (const SieveRuleSet *set)
        * the rule doesn't lose it. */
       g_string_append (out, "if false");
       if (r->conditions->len > 0) {
-        g_string_append_printf (out, " # %s (",
-                                r->mode == SIEVE_MATCH_MODE_ANY ? "anyof" : "allof");
-        for (guint j = 0; j < r->conditions->len; j++) {
-          if (j > 0)
-            g_string_append (out, ", ");
-          append_condition (out, g_ptr_array_index (r->conditions, j));
-        }
-        g_string_append_c (out, ')');
+        g_string_append (out, " # ");
+        append_conditions (out, r);
       }
       g_string_append (out, "\n{\n");
     } else if (r->conditions->len == 0) {
       g_string_append (out, "if true\n{\n");
     } else {
-      g_string_append_printf (out, "if %s (",
-                              r->mode == SIEVE_MATCH_MODE_ANY ? "anyof" : "allof");
-      for (guint j = 0; j < r->conditions->len; j++) {
-        if (j > 0)
-          g_string_append (out, ", ");
-        append_condition (out, g_ptr_array_index (r->conditions, j));
-      }
-      g_string_append (out, ")\n{\n");
+      g_string_append (out, "if ");
+      append_conditions (out, r);
+      g_string_append (out, "\n{\n");
     }
 
     for (guint j = 0; j < r->actions->len; j++)
@@ -1296,16 +1325,24 @@ sieve_rule_set_parse (const gchar *script, GError **error)
   src = ast->source;
   set = sieve_rule_set_new ();
 
-  /* Leading "require", only if it isn't preceded by any comment
-   * (otherwise it belongs to a foreign block). Its extensions are kept
-   * in `extra_requires`; sieve_rule_set_to_script() decides which of
-   * them are re-emitted. */
+  /* Leading "require". Its extensions are kept in `extra_requires`;
+   * sieve_rule_set_to_script() decides which of them are re-emitted.
+   * Comments before it (a header, a commented-out older require line,
+   * a foreign tool's banner...) are kept verbatim in `preamble`, unless
+   * they carry a "# rule:[name]" marker: the require is then part of
+   * that unit, captured as an opaque rule like any other. */
   if (ast->commands->len > 0) {
     const SieveAstCommand *first = g_ptr_array_index (ast->commands, 0);
+    g_autofree gchar *marker = NULL;
 
     if (g_strcmp0 (first->name, "require") == 0 &&
-        trivia_is_blank (src + first->trivia_start, src + first->start)) {
+        find_rule_markers (src + first->trivia_start, src + first->start,
+                           &marker) == 0) {
       GPtrArray *req = g_ptr_array_new_with_free_func (g_free);
+
+      if (!trivia_is_blank (src + first->trivia_start, src + first->start))
+        set->preamble = g_strndup (src + first->trivia_start,
+                                   first->start - first->trivia_start);
 
       for (guint j = 0; j < first->args->len; j++) {
         const SieveAstArg *arg = arg_at (first->args, j);

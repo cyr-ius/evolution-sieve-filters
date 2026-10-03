@@ -171,7 +171,13 @@ typedef struct {
                                 but body/copy/encoded-character/
                                 fileinto/imap4flags/regex/reject/
                                 vacation/variables); all of them if an
-                                opaque rule's text doesn't parse. */
+                                opaque rule's text doesn't parse.
+                                "imapflags" there (older servers) makes
+                                the flag actions declare it instead of
+                                "imap4flags". */
+  gchar     *preamble;       /* comments preceding the original "require"
+                                line, re-emitted verbatim before it; NULL
+                                if there were none (or no require). */
 } SieveRuleSet;
 
 SieveCondition *sieve_condition_new  (void);

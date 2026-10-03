@@ -485,6 +485,13 @@ msgmerge --update po/fr.po po/evolution-sieve-filters.pot
   reinterpreting a foreign block (Nextcloud Mail, Roundcube) elsewhere
   in the script. On failure the rule is left untouched (still opaque,
   exact text preserved) and the reason is shown inline.
+- Serialization stays close to hand-written Sieve (issue #1): a rule
+  with a single condition is written without the `allof (...)`
+  wrapper (RFC 5228: `allof` of one test is that test); comments before
+  the leading `require` are kept verbatim (`SieveRuleSet.preamble`)
+  instead of pushing that `require` into an opaque rule; and a script
+  whose `require` declares the old `imapflags` (draft, older Cyrus)
+  rather than `imap4flags` keeps `imapflags` for the flag actions.
 - Rule order can be changed (up/down buttons in the rule list's
   toolbar, next to +/-/reload) — order matters in Sieve (top-to-bottom
   evaluation, `stop` short-circuits the rest), including for opaque

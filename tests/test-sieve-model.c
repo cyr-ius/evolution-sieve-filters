@@ -555,8 +555,10 @@ test_disabled_rule_recovers_condition (void)
 
   out = sieve_rule_set_to_script (set);
   g_assert_null (strstr (out, "if true"));
+  /* A lone test is written unwrapped (RFC 5228: allof of one test is
+   * that test), the original "allof (...)" still being read back. */
   g_assert_nonnull (strstr (out,
-    "if false # allof (header :matches \"subject\" \"[Fail2ban] *\")"));
+    "if false # header :matches \"subject\" \"[Fail2ban] *\"\n"));
 
   {
     g_autoptr (SieveRuleSet) back = sieve_rule_set_parse (out, NULL);
@@ -564,12 +566,12 @@ test_disabled_rule_recovers_condition (void)
   }
   g_assert_cmpstr (out, ==, out2);
 
-  /* Re-enabling turns it back into a normal "if allof (...)" test. */
+  /* Re-enabling turns it back into a normal test. */
   r->enabled = TRUE;
   {
     g_autofree gchar *enabled_out = sieve_rule_set_to_script (set);
     g_assert_nonnull (strstr (enabled_out,
-      "if allof (header :matches \"subject\" \"[Fail2ban] *\")"));
+      "if header :matches \"subject\" \"[Fail2ban] *\"\n"));
   }
 }
 
@@ -1223,7 +1225,7 @@ test_exists_ignores_values (void)
   g_ptr_array_add (set->rules, r);
 
   out = sieve_rule_set_to_script (set);
-  g_assert_nonnull (strstr (out, "if allof (exists \"cc\")"));
+  g_assert_nonnull (strstr (out, "if exists \"cc\"\n"));
   g_assert_null (strstr (out, "leftover"));
   g_assert_null (strstr (out, "variables"));
 }
@@ -1410,6 +1412,117 @@ test_opaque_rules_requires_scanned (void)
   g_assert_true (g_str_has_prefix (out_b, "require [\"copy\", \"fileinto\"];\n"));
 }
 
+/* github issue #1 (follow-up): a rule with a single test is written
+ * back unwrapped — "allof (X)" is X (RFC 5228 §5.2), the wrapper was
+ * only noise in a hand-maintained script — while several tests keep
+ * their allof/anyof. */
+static void
+test_single_condition_unwrapped (void)
+{
+  const gchar *script =
+    "# rule:[Netfilter]\n"
+    "if header :contains \"list-id\" [\"netfilter-devel.lists.samba.org\", "
+    "\"netfilter-devel.lists.netfilter.org\"]\n"
+    "{\n"
+    "\tkeep;\n"
+    "}\n"
+    "\n"
+    "# rule:[Spam]\n"
+    "if allof (header :contains \"x-spam-flag\" \"YES\")\n"
+    "{\n"
+    "\tdiscard;\n"
+    "}\n"
+    "\n"
+    "# rule:[Both]\n"
+    "if anyof (header :contains \"subject\" \"a\", header :contains \"subject\" \"b\")\n"
+    "{\n"
+    "\tkeep;\n"
+    "}\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+  g_autofree gchar *out = NULL;
+  g_autofree gchar *out2 = NULL;
+
+  g_assert_nonnull (set);
+  out = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (out,
+    "if header :contains \"list-id\" [\"netfilter-devel.lists.samba.org\", "
+    "\"netfilter-devel.lists.netfilter.org\"]\n{\n"));
+  g_assert_nonnull (strstr (out, "if header :contains \"x-spam-flag\" \"YES\"\n{\n"));
+  g_assert_nonnull (strstr (out,
+    "if anyof (header :contains \"subject\" \"a\", header :contains \"subject\" \"b\")\n"));
+  g_assert_null (strstr (out, "allof"));
+
+  {
+    g_autoptr (SieveRuleSet) back = sieve_rule_set_parse (out, NULL);
+    out2 = sieve_rule_set_to_script (back);
+  }
+  g_assert_cmpstr (out, ==, out2);
+}
+
+/* github issue #1 (follow-up): comments before the leading require (here
+ * a commented-out older require line) no longer hide it — it used to
+ * end up inside an opaque rule, and a second, generated require was
+ * prepended. The comments are kept verbatim, before a single require.
+ * And a script declaring the older "imapflags" (draft, as still spoken
+ * by e.g. older Cyrus servers) keeps it for the flag actions, instead
+ * of "imap4flags" the server would reject. */
+static void
+test_require_after_comments_imapflags (void)
+{
+  const gchar *script =
+    "#require [\"body\",\"fileinto\",\"imapflags\",\"vnd.cyrus.log\"];\n"
+    "\n"
+    "require [\"body\",\"fileinto\",\"imapflags\",\"regex\"];\n"
+    "\n"
+    "# rule:[Seen]\n"
+    "if body :text :regex \"(Foo|Bar), Example\"\n"
+    "{\n"
+    "\taddflag \"\\\\Seen\";\n"
+    "\tfileinto \"Junk\";\n"
+    "}\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+  g_autofree gchar *out = NULL;
+  g_autofree gchar *out2 = NULL;
+  SieveRule *r;
+
+  g_assert_nonnull (set);
+  g_assert_cmpuint (set->rules->len, ==, 1);
+  r = g_ptr_array_index (set->rules, 0);
+  g_assert_false (r->opaque);
+
+  out = sieve_rule_set_to_script (set);
+  g_assert_true (g_str_has_prefix (out,
+    "#require [\"body\",\"fileinto\",\"imapflags\",\"vnd.cyrus.log\"];\n"
+    "\n"
+    "require [\"body\", \"fileinto\", \"imapflags\", \"regex\"];\n"));
+  g_assert_null (strstr (out, "imap4flags"));
+  /* A single (uncommented) require line. */
+  g_assert_null (strstr (strstr (out, "\nrequire") + 1, "\nrequire"));
+
+  {
+    g_autoptr (SieveRuleSet) back = sieve_rule_set_parse (out, NULL);
+    out2 = sieve_rule_set_to_script (back);
+  }
+  g_assert_cmpstr (out, ==, out2);
+}
+
+/* A require preceded by a "# rule:[...]" marker still belongs to that
+ * unit: captured as an opaque rule, not split off as a preamble. */
+static void
+test_require_after_marker_stays_opaque (void)
+{
+  const gchar *script =
+    "# rule:[Odd]\n"
+    "require \"fileinto\";\n"
+    "if true { fileinto \"A\"; }\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+
+  g_assert_nonnull (set);
+  g_assert_null (set->preamble);
+  g_assert_null (set->extra_requires);
+  g_assert_true (((SieveRule *) g_ptr_array_index (set->rules, 0))->opaque);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -1465,5 +1578,11 @@ main (int argc, char **argv)
                    test_new_action_requires_recomputed);
   g_test_add_func ("/sieve-model/opaque-rules-requires-scanned",
                    test_opaque_rules_requires_scanned);
+  g_test_add_func ("/sieve-model/single-condition-unwrapped",
+                   test_single_condition_unwrapped);
+  g_test_add_func ("/sieve-model/require-after-comments-imapflags",
+                   test_require_after_comments_imapflags);
+  g_test_add_func ("/sieve-model/require-after-marker-stays-opaque",
+                   test_require_after_marker_stays_opaque);
   return g_test_run ();
 }
