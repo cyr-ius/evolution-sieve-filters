@@ -1,3 +1,14 @@
+evolution-sieve-filters (0.4.9-1) unstable; urgency=medium
+
+  * Sieve editor: switching from the raw text tab back to the visual
+    editor no longer drops "variables" (or any other extension the
+    visual editor doesn't know about) from the script's "require" line
+    (#4). "variables" is also added automatically when a value contains
+    a "${...}" variable reference, and "encoded-character" for
+    "${hex:...}" / "${unicode:...}".
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sat, 03 Oct 2026 11:02:01 +0000
+
 evolution-sieve-filters (0.4.8-1) unstable; urgency=medium
 
   * Sieve Filters dialog: the status line now reports the authentication
