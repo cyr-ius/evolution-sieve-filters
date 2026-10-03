@@ -21,6 +21,13 @@
  *   - SCRAM-*-PLUS (TLS channel binding), GS2-KRB5, EXTERNAL
  *   - automatic reconnection / command queuing
  *
+ * Untrusted server input: every response is bounded (line length, "{N}"
+ * literal size, total response size, number of SASL round trips) and
+ * anything malformed — NUL bytes, invalid UTF-8, bad base64, a
+ * LISTSCRIPTS / GETSCRIPT / SASL reply that isn't the expected string —
+ * fails with SIEVE_MANAGESIEVE_ERROR_PROTOCOL instead of being guessed
+ * at. Strings may come quoted or as literals, anywhere.
+ *
  * Cancellation and timeouts: the GCancellable passed to each operation is
  * genuinely honored (GIO already did so; it is now used on the UI side,
  * see sieve-editor-dialog.c). A network timeout is applied by default to

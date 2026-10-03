@@ -12,6 +12,13 @@ test_sasl = executable('test-sasl',
   dependencies: [glib_dep, sieve_client_dep])
 test('sasl', test_sasl)
 
+# Unit tests for the ManageSieve response parser (no network): the client
+# is fed canned server bytes through in-memory streams.
+test_managesieve_parser = executable('test-managesieve-parser',
+  'test-managesieve-parser.c',
+  dependencies: [glib_dep, gio_dep, sieve_client_dep])
+test('managesieve-parser', test_managesieve_parser)
+
 # Unit tests for the Sieve rule model (model ⇄ script round-trip,
 # rejection of scripts outside the visual editor's scope). No network.
 test_sieve_model = executable('test-sieve-model',

@@ -47,7 +47,10 @@ system account, everything under `tests/dovecot/`).
 
 ```sh
 meson test -C build                       # SASL unit tests (tests/test-sasl,
-                                          # no network): negotiation + OAuth
+                                          # no network): negotiation + OAuth;
+                                          # response parser unit tests
+                                          # (tests/test-managesieve-parser,
+                                          # canned server bytes, no network)
 
 tests/dovecot/smoke.sh                    # end-to-end: brings up Dovecot,
                                           # tests implicit TLS AND STARTTLS,
@@ -173,6 +176,7 @@ Against a real server: `test-managesieve --host … --user … [--starttls] [--p
 | `dovecot.log`: `t_readlink(...dovecot.conf) failed: Invalid argument` | Dovecot 2.3 artifact on overlayfs (devcontainer workspace). **Harmless.** |
 | `NO ... "Cannot delete the active Sieve script."` | Dovecot refuses `DELETESCRIPT` on the active script → `SETACTIVE ""` first (`test-managesieve --deactivate`) |
 | `NO ... PUTSCRIPT: Invalid arguments` seen once | it was state broken by the symlink loop above, not a client bug. The client's `{N+}` literal framing is correct. |
+| `GETSCRIPT` returned the script with one extra trailing `\n` (and a "NO {N}" left a stray empty line for the next command) | the CRLF ending the line *after* a `{N}` literal is framing, not data — it was read as an extra empty data line. Fixed by `read_logical_line()` in `sieve-managesieve-client.c` (literal + rest of its line = one logical line); covered by `/parser/getscript/literal-exact` and `/parser/status/no-literal-then-next`. |
 | TLS handshake `Connection reset by peer` on startup | Dovecot's `config` process crashed (invalid conf) → read `tests/dovecot/run/dovecot.log` |
 | `test-sieve-secret`: `SKIP ... Failed to execute child process "dbus-launch"` | normal outside a D-Bus session: libsecret can't start a bus. The test skips. For the real round-trip: `tests/secret/smoke.sh`. |
 | keyring smoke: `Cannot create an item in a locked collection` | the `default` Secret Service alias points to a locked collection (no graphical prompter available headless). `smoke.sh` pre-designates the `login` keyring (created unlocked via `--unlock`) via `keyrings/default`. If it persists: `pkill -9 gnome-keyring-daemon` (leftover daemon from a previous run) then rerun. |
@@ -305,6 +309,12 @@ tests/test-managesieve.c           client test CLI (network)
 tests/test-imap-probe.c            sieve-imap-probe test CLI (network,
                                    issue #3 — see tests/dovecot/ below)
 tests/test-sasl.c                  sieve-sasl unit tests (no network)
+tests/test-managesieve-parser.c    response parser unit tests: the client
+                                   is attached to in-memory streams
+                                   carrying canned (incl. malformed /
+                                   hostile) server bytes, via
+                                   src/sieve-managesieve-client-private.h
+                                   (test-only hook, not part of the API)
 tests/test-sieve-model.c           sieve-model unit tests (no network)
 tests/test-sieve-secret.c          keyring round-trip; skips without Secret Service
 tests/test-sieve-config.c          per-account profiles + [manual] +
@@ -345,6 +355,16 @@ po/                                gettext translations for the Evolution
 - The protocol AND the SASL mechanisms have been validated **against a
   real Dovecot**: if you touch the response parser, literal framing, or
   `sieve-sasl.c`, rerun `meson test` then `smoke.sh`.
+- Response parser (`sieve-managesieve-client.c`): everything the server
+  sends is bounded — physical line (`SIEVE_MANAGESIEVE_MAX_LINE_SIZE`,
+  64 KiB), `{N}` literal (`…_MAX_LITERAL_SIZE`, 16 MiB, checked before
+  allocating), whole response (`…_MAX_RESPONSE_SIZE`, 32 MiB), SASL
+  round trips (`…_MAX_SASL_ROUNDS`); NUL bytes, invalid UTF-8 and
+  malformed base64 are protocol errors. `read_logical_line()` turns every
+  literal into a quoted-string and consumes the rest of its line, so the
+  callers only ever parse quoted-strings (`scan_quoted_string()`) — keep
+  it that way rather than special-casing literals again. New parser
+  cases go in `tests/test-managesieve-parser.c`.
 - SASL: negotiation/`sieve-sasl.c` is self-contained (no Evolution
   dependency) — keep it that way. OAUTHBEARER/XOAUTH2 are built by hand
   (libgsasl doesn't provide them); the client **consumes** a token, it
@@ -436,11 +456,6 @@ verbatim from another tool), and that only a lexically broken script
   is currently read only for the folder separator probe, issue #3.)
 - **SCRAM-\*-PLUS (TLS channel binding) and GS2-KRB5** — `sieve-sasl.c`
   still sends a `n,` gs2-header (no channel binding).
-- **Hardening the response parser**: `{N}` literals are now bounded
-  (`SIEVE_MANAGESIEVE_MAX_LITERAL_SIZE`, 16 MiB, overflow-checked —
-  reachable pre-TLS in STARTTLS mode), but response *lines* are still
-  read without a length cap (`g_data_input_stream_read_line_utf8()` in
-  `read_line()`).
 - **A real RFC 5228 parser**, to make more constructs (`not`, `exists`,
   nested `anyof`, `vacation`…) representable at all in the visual
   editor, plus the `variables` actions (`set`…). The `variables`
