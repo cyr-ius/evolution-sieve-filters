@@ -6,8 +6,24 @@
  */
 
 #include "sieve-imap-probe.h"
+#include "sieve-imap-probe-private.h"
 
 #include <string.h>
+
+/* Longest physical response line accepted (CRLF excluded). The probe only
+ * ever reads a greeting, a CAPABILITY, one LIST line and tagged
+ * statuses -- all short: without a bound, a server (or, before STARTTLS,
+ * anyone on the network path) that never sends CRLF would make the
+ * process -- Evolution itself -- buffer forever. Same cap as
+ * SIEVE_MANAGESIEVE_MAX_LINE_SIZE in sieve-managesieve-client.c. */
+#define SIEVE_IMAP_PROBE_MAX_LINE_SIZE (64 * 1024)
+
+/* Total bytes accepted for a single response (the greeting, or every
+ * untagged line up to and including a tagged status). Bounds what the
+ * line cap can't on its own: an endless stream of individually valid
+ * untagged lines. Far above anything LOGIN / LIST "" "" legitimately
+ * produce. */
+#define SIEVE_IMAP_PROBE_MAX_RESPONSE_SIZE (1024 * 1024)
 
 GQuark
 sieve_imap_probe_error_quark (void)
@@ -21,6 +37,9 @@ typedef struct {
   GDataInputStream   *input;
   GOutputStream      *output;
   guint               timeout_seconds;
+  gsize               response_budget; /* bytes still accepted for the
+                                        * response being read (see
+                                        * MAX_RESPONSE_SIZE) */
 } ImapConn;
 
 static void
@@ -67,18 +86,84 @@ rebind_streams (ImapConn *conn)
   conn->output = g_io_stream_get_output_stream (conn->active_stream);
 }
 
+static void
+set_protocol_error (GError **error, const gchar *message)
+{
+  g_set_error_literal (error, SIEVE_IMAP_PROBE_ERROR,
+                       SIEVE_IMAP_PROBE_ERROR_PROTOCOL, message);
+}
+
+/* Reads a physical line (without its line terminator). NULL + error on
+ * failure. Bounded (SIEVE_IMAP_PROBE_MAX_LINE_SIZE per line, and the
+ * current response's budget), unlike g_data_input_stream_read_line(),
+ * which buffers until it finds a terminator. Same logic as read_line()
+ * in sieve-managesieve-client.c: CRLF or a lone LF accepted, NUL bytes
+ * and invalid UTF-8 rejected. */
 static gchar *
 imap_read_line (ImapConn *conn, GCancellable *cancellable, GError **error)
 {
-  gchar *line = g_data_input_stream_read_line_utf8 (conn->input, NULL, cancellable, error);
+  GBufferedInputStream *input = G_BUFFERED_INPUT_STREAM (conn->input);
+  GString *line = g_string_new (NULL);
 
-  if (line == NULL) {
-    normalize_transport_error (error);
-    if (error != NULL && *error == NULL)
-      g_set_error (error, SIEVE_IMAP_PROBE_ERROR, SIEVE_IMAP_PROBE_ERROR_PROTOCOL,
-                   "Connection unexpectedly closed by the server");
+  while (TRUE) {
+    gsize avail;
+    const gchar *buf = g_buffered_input_stream_peek_buffer (input, &avail);
+    const gchar *nl;
+    gsize take;
+
+    if (avail == 0) {
+      gssize n = g_buffered_input_stream_fill (input, -1, cancellable, error);
+
+      if (n < 0) {
+        normalize_transport_error (error);
+        goto fail;
+      }
+      if (n == 0) {
+        set_protocol_error (error, "Connection unexpectedly closed by the server");
+        goto fail;
+      }
+      continue;
+    }
+
+    nl = memchr (buf, '\n', avail);
+    take = nl != NULL ? (gsize) (nl - buf) + 1 : avail;
+
+    /* +2: the terminator doesn't count against the line itself. */
+    if (line->len + take > SIEVE_IMAP_PROBE_MAX_LINE_SIZE + 2) {
+      set_protocol_error (error, "Server response line too long");
+      goto fail;
+    }
+    if (take > conn->response_budget) {
+      set_protocol_error (error, "Server response too large");
+      goto fail;
+    }
+    conn->response_budget -= take;
+
+    g_string_append_len (line, buf, take);
+    /* Data already buffered: skipping it never blocks. */
+    g_input_stream_skip (G_INPUT_STREAM (input), take, NULL, NULL);
+
+    if (nl != NULL)
+      break;
   }
-  return line;
+
+  g_string_truncate (line, line->len - 1);                 /* '\n' */
+  if (line->len > 0 && line->str[line->len - 1] == '\r')
+    g_string_truncate (line, line->len - 1);
+
+  if (memchr (line->str, '\0', line->len) != NULL) {
+    set_protocol_error (error, "NUL byte in a server response line");
+    goto fail;
+  }
+  if (!g_utf8_validate (line->str, line->len, NULL)) {
+    set_protocol_error (error, "Invalid UTF-8 in a server response line");
+    goto fail;
+  }
+  return g_string_free (line, FALSE);
+
+fail:
+  g_string_free (line, TRUE);
+  return NULL;
 }
 
 static gboolean
@@ -134,6 +219,8 @@ imap_read_tagged_response (ImapConn *conn, const gchar *tag,
 {
   gsize taglen = strlen (tag);
 
+  conn->response_budget = SIEVE_IMAP_PROBE_MAX_RESPONSE_SIZE;
+
   while (TRUE) {
     g_autofree gchar *line = imap_read_line (conn, cancellable, error);
     const gchar *rest;
@@ -162,12 +249,31 @@ imap_read_tagged_response (ImapConn *conn, const gchar *tag,
 
 /* ---- Connection (mirrors sieve-managesieve-client.c) ------------------- */
 
+/* Single-line greeting: "* OK ...", "* PREAUTH ..." (already
+ * authenticated -- treated as success, LOGIN is simply skipped by the
+ * caller since it isn't needed) or "* BYE ..." (refused). */
+static gboolean
+imap_read_greeting (ImapConn *conn, GCancellable *cancellable, GError **error)
+{
+  g_autofree gchar *greeting = NULL;
+
+  conn->response_budget = SIEVE_IMAP_PROBE_MAX_RESPONSE_SIZE;
+  greeting = imap_read_line (conn, cancellable, error);
+  if (greeting == NULL)
+    return FALSE;
+  if (g_ascii_strncasecmp (greeting, "* BYE", 5) == 0) {
+    g_set_error (error, SIEVE_IMAP_PROBE_ERROR, SIEVE_IMAP_PROBE_ERROR_PROTOCOL,
+                 "The server refused the connection: %s", greeting);
+    return FALSE;
+  }
+  return TRUE;
+}
+
 static gboolean
 imap_connect (ImapConn *conn, const gchar *host, guint16 port,
              gboolean implicit_tls, GCancellable *cancellable, GError **error)
 {
   GSocketClient *client;
-  g_autofree gchar *greeting = NULL;
 
   client = g_socket_client_new ();
   if (implicit_tls)
@@ -187,17 +293,8 @@ imap_connect (ImapConn *conn, const gchar *host, guint16 port,
   }
   rebind_streams (conn);
 
-  /* Single-line greeting: "* OK ...", "* PREAUTH ..." (already
-   * authenticated -- treated as success, LOGIN is simply skipped by the
-   * caller since it isn't needed) or "* BYE ..." (refused). */
-  greeting = imap_read_line (conn, cancellable, error);
-  if (greeting == NULL)
+  if (!imap_read_greeting (conn, cancellable, error))
     return FALSE;
-  if (g_ascii_strncasecmp (greeting, "* BYE", 5) == 0) {
-    g_set_error (error, SIEVE_IMAP_PROBE_ERROR, SIEVE_IMAP_PROBE_ERROR_PROTOCOL,
-                 "The server refused the connection: %s", greeting);
-    return FALSE;
-  }
 
   if (!implicit_tls) {
     GIOStream *tls_stream;
@@ -298,51 +395,37 @@ handle_list_untagged (const gchar *line, gpointer user_data)
   }
 }
 
-gboolean
-sieve_imap_probe_hierarchy_separator_sync (const gchar  *host,
-                                           guint16       port,
-                                           gboolean      implicit_tls,
-                                           const gchar  *user,
-                                           const gchar  *password,
-                                           guint         timeout_seconds,
-                                           GCancellable *cancellable,
-                                           gchar        *out_separator,
-                                           GError      **error)
+/* LOGIN + LIST "" "" + best-effort LOGOUT on an already-connected (and
+ * greeted) `conn`, which is always cleared on return. */
+static gboolean
+imap_probe_session (ImapConn     *conn,
+                    const gchar  *user,
+                    const gchar  *password,
+                    GCancellable *cancellable,
+                    gchar        *out_separator,
+                    GError      **error)
 {
-  ImapConn conn = { 0 };
   ListSeparatorCtx ctx = { 0 };
   g_autofree gchar *quoted_user = NULL;
   g_autofree gchar *quoted_password = NULL;
   gboolean ok;
 
-  g_return_val_if_fail (host != NULL, FALSE);
-  g_return_val_if_fail (user != NULL, FALSE);
-  g_return_val_if_fail (password != NULL, FALSE);
-  g_return_val_if_fail (out_separator != NULL, FALSE);
-  g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
-
-  conn.timeout_seconds = timeout_seconds;
-
-  ok = imap_connect (&conn, host, port, implicit_tls, cancellable, error);
-
-  if (ok) {
-    quoted_user = imap_quote_string (user, error);
-    quoted_password = (quoted_user != NULL) ? imap_quote_string (password, error) : NULL;
-    ok = quoted_user != NULL && quoted_password != NULL;
-  }
+  quoted_user = imap_quote_string (user, error);
+  quoted_password = (quoted_user != NULL) ? imap_quote_string (password, error) : NULL;
+  ok = quoted_user != NULL && quoted_password != NULL;
 
   if (ok) {
     g_autofree gchar *cmd = g_strdup_printf ("a2 LOGIN %s %s", quoted_user, quoted_password);
 
-    ok = imap_write_line (&conn, cmd, cancellable, error)
-         && imap_read_tagged_response (&conn, "a2", NULL, NULL,
+    ok = imap_write_line (conn, cmd, cancellable, error)
+         && imap_read_tagged_response (conn, "a2", NULL, NULL,
                                        SIEVE_IMAP_PROBE_ERROR_LOGIN,
                                        cancellable, error);
   }
 
   if (ok) {
-    ok = imap_write_line (&conn, "a3 LIST \"\" \"\"", cancellable, error)
-         && imap_read_tagged_response (&conn, "a3", handle_list_untagged, &ctx,
+    ok = imap_write_line (conn, "a3 LIST \"\" \"\"", cancellable, error)
+         && imap_read_tagged_response (conn, "a3", handle_list_untagged, &ctx,
                                        SIEVE_IMAP_PROBE_ERROR_PROTOCOL,
                                        cancellable, error);
   }
@@ -358,14 +441,66 @@ sieve_imap_probe_hierarchy_separator_sync (const gchar  *host,
   }
 
   /* Best-effort LOGOUT: never overrides an already-determined result. */
-  if (conn.connection != NULL) {
-    if (imap_write_line (&conn, "a4 LOGOUT", cancellable, NULL))
-      imap_read_tagged_response (&conn, "a4", NULL, NULL,
-                                 SIEVE_IMAP_PROBE_ERROR_PROTOCOL, cancellable, NULL);
-  }
-  imap_conn_clear (&conn);
+  if (imap_write_line (conn, "a4 LOGOUT", cancellable, NULL))
+    imap_read_tagged_response (conn, "a4", NULL, NULL,
+                               SIEVE_IMAP_PROBE_ERROR_PROTOCOL, cancellable, NULL);
+  imap_conn_clear (conn);
 
   if (ok)
     *out_separator = ctx.separator;
   return ok;
+}
+
+gboolean
+sieve_imap_probe_hierarchy_separator_sync (const gchar  *host,
+                                           guint16       port,
+                                           gboolean      implicit_tls,
+                                           const gchar  *user,
+                                           const gchar  *password,
+                                           guint         timeout_seconds,
+                                           GCancellable *cancellable,
+                                           gchar        *out_separator,
+                                           GError      **error)
+{
+  ImapConn conn = { 0 };
+
+  g_return_val_if_fail (host != NULL, FALSE);
+  g_return_val_if_fail (user != NULL, FALSE);
+  g_return_val_if_fail (password != NULL, FALSE);
+  g_return_val_if_fail (out_separator != NULL, FALSE);
+  g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+
+  conn.timeout_seconds = timeout_seconds;
+
+  if (!imap_connect (&conn, host, port, implicit_tls, cancellable, error)) {
+    imap_conn_clear (&conn);
+    return FALSE;
+  }
+  return imap_probe_session (&conn, user, password, cancellable, out_separator, error);
+}
+
+gboolean
+sieve_imap_probe_hierarchy_separator_on_stream_for_testing (GIOStream    *stream,
+                                                            const gchar  *user,
+                                                            const gchar  *password,
+                                                            GCancellable *cancellable,
+                                                            gchar        *out_separator,
+                                                            GError      **error)
+{
+  ImapConn conn = { 0 };
+
+  g_return_val_if_fail (G_IS_IO_STREAM (stream), FALSE);
+  g_return_val_if_fail (user != NULL, FALSE);
+  g_return_val_if_fail (password != NULL, FALSE);
+  g_return_val_if_fail (out_separator != NULL, FALSE);
+  g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+
+  conn.active_stream = g_object_ref (stream);
+  rebind_streams (&conn);
+
+  if (!imap_read_greeting (&conn, cancellable, error)) {
+    imap_conn_clear (&conn);
+    return FALSE;
+  }
+  return imap_probe_session (&conn, user, password, cancellable, out_separator, error);
 }

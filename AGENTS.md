@@ -51,6 +51,9 @@ meson test -C build                       # SASL unit tests (tests/test-sasl,
                                           # response parser unit tests
                                           # (tests/test-managesieve-parser,
                                           # canned server bytes, no network);
+                                          # IMAP probe reader unit tests
+                                          # (tests/test-imap-probe-parser,
+                                          # same approach);
                                           # Sieve parser + rule model
                                           # (tests/test-sieve-ast,
                                           # tests/test-sieve-model)
@@ -325,6 +328,10 @@ src/module-sieve-filters.c         EModule entry point: Edit → Sieve
 tests/test-managesieve.c           client test CLI (network)
 tests/test-imap-probe.c            sieve-imap-probe test CLI (network,
                                    issue #3 — see tests/dovecot/ below)
+tests/test-imap-probe-parser.c     sieve-imap-probe reader unit tests:
+                                   canned server bytes via
+                                   src/sieve-imap-probe-private.h
+                                   (test-only hook, not part of the API)
 tests/test-sasl.c                  sieve-sasl unit tests (no network)
 tests/test-managesieve-parser.c    response parser unit tests: the client
                                    is attached to in-memory streams
@@ -385,6 +392,14 @@ po/                                gettext translations for the Evolution
   callers only ever parse quoted-strings (`scan_quoted_string()`) — keep
   it that way rather than special-casing literals again. New parser
   cases go in `tests/test-managesieve-parser.c`.
+- IMAP probe (`sieve-imap-probe.c`): same rule — it runs inside the
+  Evolution process and, in STARTTLS mode, reads the greeting before
+  TLS, so every read is bounded: `imap_read_line()` (same logic as the
+  client's `read_line()`, `SIEVE_IMAP_PROBE_MAX_LINE_SIZE`, 64 KiB) and
+  a per-response budget (`…_MAX_RESPONSE_SIZE`, 1 MiB, reset for the
+  greeting and for each tagged response). Never go back to
+  `g_data_input_stream_read_line*()`. Cases go in
+  `tests/test-imap-probe-parser.c`.
 - SASL: negotiation/`sieve-sasl.c` is self-contained (no Evolution
   dependency) — keep it that way. OAUTHBEARER/XOAUTH2 are built by hand
   (libgsasl doesn't provide them); the client **consumes** a token, it

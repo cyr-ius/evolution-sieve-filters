@@ -19,6 +19,13 @@ test_managesieve_parser = executable('test-managesieve-parser',
   dependencies: [glib_dep, gio_dep, sieve_client_dep])
 test('managesieve-parser', test_managesieve_parser)
 
+# Unit tests for the IMAP probe's response reader (no network): canned
+# server bytes through in-memory streams, as above.
+test_imap_probe_parser = executable('test-imap-probe-parser',
+  'test-imap-probe-parser.c',
+  dependencies: [glib_dep, gio_dep, sieve_imap_probe_dep])
+test('imap-probe-parser', test_imap_probe_parser)
+
 # Unit tests for the Sieve rule model (model ⇄ script round-trip,
 # rejection of scripts outside the visual editor's scope). No network.
 test_sieve_model = executable('test-sieve-model',
