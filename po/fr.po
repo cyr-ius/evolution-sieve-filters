@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: evolution-sieve-filters 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-28 16:49+0000\n"
+"POT-Creation-Date: 2026-10-03 10:49+0000\n"
 "PO-Revision-Date: 2026-09-12+00:00\n"
 "Last-Translator: \n"
 "Language-Team: French\n"
@@ -119,46 +119,50 @@ msgstr ""
 msgid "OAuth2 authentication (token supplied by Evolution)."
 msgstr "Authentification OAuth2 (jeton fourni par Evolution)."
 
-#: src/sieve-editor-dialog.c:871
+#: src/sieve-editor-dialog.c:874
+msgid "Kerberos authentication (GSSAPI)."
+msgstr "Authentification Kerberos (GSSAPI)."
+
+#: src/sieve-editor-dialog.c:876
 msgid "Password reused from the Evolution account."
 msgstr "Mot de passe réutilisé depuis le compte Evolution."
 
-#: src/sieve-editor-dialog.c:938
+#: src/sieve-editor-dialog.c:943
 msgid "Connection cancelled."
 msgstr "Connexion annulée."
 
-#: src/sieve-editor-dialog.c:940
+#: src/sieve-editor-dialog.c:945
 #, c-format
 msgid "Connection failed: %s"
 msgstr "Connexion échouée : %s"
 
-#: src/sieve-editor-dialog.c:952
+#: src/sieve-editor-dialog.c:957
 msgid " (offline: use \"Reload rules\" to send it.)"
 msgstr " (hors ligne : utilisez « Recharger les règles » pour l'envoyer.)"
 
-#: src/sieve-editor-dialog.c:978
+#: src/sieve-editor-dialog.c:983
 msgid "Connected. Script loaded"
 msgstr "Connecté. Script chargé"
 
-#: src/sieve-editor-dialog.c:1006
+#: src/sieve-editor-dialog.c:1011
 msgid "Choose an account first."
 msgstr "Choisissez d'abord un compte."
 
-#: src/sieve-editor-dialog.c:1065
+#: src/sieve-editor-dialog.c:1070
 msgid "Connecting via OAuth2… (token requested from Evolution)"
 msgstr "Connexion via OAuth2… (jeton demandé à Evolution)"
 
-#: src/sieve-editor-dialog.c:1066
+#: src/sieve-editor-dialog.c:1071
 msgid "Connecting… (\"Cancel\" to interrupt)"
 msgstr "Connexion en cours… (« Annuler » pour interrompre)"
 
-#: src/sieve-editor-dialog.c:1132
+#: src/sieve-editor-dialog.c:1137
 msgid "Reload cancelled."
 msgstr "Rechargement annulé."
 
 #. Connection lost: the session is no longer reliable. "Reload
 #. * rules" will start a fresh connection.
-#: src/sieve-editor-dialog.c:1136
+#: src/sieve-editor-dialog.c:1141
 #, c-format
 msgid ""
 "Connection lost during reload: %s. Use \"Reload rules\" to retry the "
@@ -167,40 +171,40 @@ msgstr ""
 "Connexion perdue pendant le rechargement : %s. Utilisez « Recharger les "
 "règles » pour retenter la connexion."
 
-#: src/sieve-editor-dialog.c:1147
+#: src/sieve-editor-dialog.c:1152
 #, c-format
 msgid "Reload failed: %s"
 msgstr "Rechargement échoué : %s"
 
-#: src/sieve-editor-dialog.c:1160
+#: src/sieve-editor-dialog.c:1165
 msgid "Rules reloaded from the server"
 msgstr "Règles rechargées depuis le serveur"
 
-#: src/sieve-editor-dialog.c:1178
+#: src/sieve-editor-dialog.c:1183
 msgid "Reloading rules… (\"Cancel\" to interrupt)"
 msgstr "Rechargement des règles… (« Annuler » pour interrompre)"
 
-#: src/sieve-editor-dialog.c:1215
+#: src/sieve-editor-dialog.c:1220
 msgid "Reload rules from the server?"
 msgstr "Recharger les règles depuis le serveur ?"
 
-#: src/sieve-editor-dialog.c:1218
+#: src/sieve-editor-dialog.c:1223
 msgid "Unsaved changes will be lost."
 msgstr "Les modifications non enregistrées seront perdues."
 
-#: src/sieve-editor-dialog.c:1220
+#: src/sieve-editor-dialog.c:1225
 msgid "_Cancel"
 msgstr "A_nnuler"
 
-#: src/sieve-editor-dialog.c:1221
+#: src/sieve-editor-dialog.c:1226
 msgid "_Reload"
 msgstr "_Recharger"
 
-#: src/sieve-editor-dialog.c:1278
+#: src/sieve-editor-dialog.c:1283
 msgid "Script saved and activated."
 msgstr "Script enregistré et activé."
 
-#: src/sieve-editor-dialog.c:1283
+#: src/sieve-editor-dialog.c:1288
 msgid ""
 "Save cancelled — the script may not have been fully transmitted; check on "
 "the server."
@@ -210,7 +214,7 @@ msgstr ""
 
 #. Connection lost / timed out while sending: the session is no
 #. * longer reliable. "Reload rules" will start a fresh connection.
-#: src/sieve-editor-dialog.c:1288
+#: src/sieve-editor-dialog.c:1293
 #, c-format
 msgid ""
 "Connection lost during save: %s. Use \"Reload rules\" to retry the "
@@ -219,46 +223,46 @@ msgstr ""
 "Connexion perdue pendant l'enregistrement : %s. Utilisez « Recharger les "
 "règles » pour retenter la connexion."
 
-#: src/sieve-editor-dialog.c:1299
+#: src/sieve-editor-dialog.c:1304
 #, c-format
 msgid "Save failed: %s"
 msgstr "Enregistrement échoué : %s"
 
-#: src/sieve-editor-dialog.c:1318
+#: src/sieve-editor-dialog.c:1323
 msgid "No session: use \"Reload rules\" to (re)connect first."
 msgstr ""
 "Aucune session : utilisez « Recharger les règles » pour (re)connecter "
 "d'abord."
 
-#: src/sieve-editor-dialog.c:1345
+#: src/sieve-editor-dialog.c:1350
 msgid "Saving… (\"Cancel\" to interrupt)"
 msgstr "Enregistrement en cours… (« Annuler » pour interrompre)"
 
-#: src/sieve-editor-dialog.c:1381
+#: src/sieve-editor-dialog.c:1386
 #, c-format
 msgid ""
 "Visual editing unavailable: %s. The script remains editable as raw text."
 msgstr ""
 "Édition visuelle indisponible : %s. Le script reste modifiable en texte brut."
 
-#: src/sieve-editor-dialog.c:1485
+#: src/sieve-editor-dialog.c:1490
 msgid "Auto-reconnecting to the last account…"
 msgstr "Reconnexion automatique au dernier compte…"
 
-#: src/sieve-editor-dialog.c:1489
+#: src/sieve-editor-dialog.c:1494
 msgid "Account ready: use \"Reload rules\" to open the session."
 msgstr ""
 "Compte prêt : utilisez « Recharger les règles » pour ouvrir la session."
 
-#: src/sieve-editor-dialog.c:1546
+#: src/sieve-editor-dialog.c:1551
 msgid "Connecting to the message's account…"
 msgstr "Connexion au compte du message…"
 
-#: src/sieve-editor-dialog.c:1564
+#: src/sieve-editor-dialog.c:1569
 msgid " Choose the relevant account, then \"Reload rules\"."
 msgstr " Choisissez le compte concerné, puis « Recharger les règles »."
 
-#: src/sieve-editor-dialog.c:1565
+#: src/sieve-editor-dialog.c:1570
 msgid ""
 " Configure this account's ManageSieve server in Edit → Accounts → \"Sieve "
 "Filters\" tab, then \"Reload rules\"."
@@ -266,15 +270,15 @@ msgstr ""
 " Configurez le serveur ManageSieve de ce compte dans Édition → Comptes → "
 "onglet « Filtres Sieve », puis « Recharger les règles »."
 
-#: src/sieve-editor-dialog.c:1647 src/sieve-config-page.c:1236
+#: src/sieve-editor-dialog.c:1652 src/sieve-config-page.c:1236
 msgid "Sieve Filters"
 msgstr "Filtres Sieve"
 
-#: src/sieve-editor-dialog.c:1662
+#: src/sieve-editor-dialog.c:1667
 msgid "Account:"
 msgstr "Compte :"
 
-#: src/sieve-editor-dialog.c:1667
+#: src/sieve-editor-dialog.c:1672
 msgid ""
 "Connection settings (server, port, encryption, username, password, auto-"
 "connect) are configured per account in Edit → Accounts, \"Sieve Filters\" "
@@ -284,7 +288,7 @@ msgstr ""
 "passe, connexion automatique) se configurent par compte dans Édition → "
 "Comptes, onglet « Filtres Sieve »."
 
-#: src/sieve-editor-dialog.c:1676
+#: src/sieve-editor-dialog.c:1681
 msgid ""
 "ManageSieve session status. There is no Connect button: the connection opens "
 "automatically on open (if the account is set up for it); otherwise use the "
@@ -295,26 +299,26 @@ msgstr ""
 "pour cela) ; sinon, utilisez « Recharger les règles » de l'éditeur visuel "
 "pour (re)connecter."
 
-#: src/sieve-editor-dialog.c:1702
+#: src/sieve-editor-dialog.c:1707
 msgid "Visual editor"
 msgstr "Éditeur visuel"
 
-#: src/sieve-editor-dialog.c:1708
+#: src/sieve-editor-dialog.c:1713
 msgid "Raw text"
 msgstr "Texte brut"
 
-#: src/sieve-editor-dialog.c:1742
+#: src/sieve-editor-dialog.c:1747
 msgid "Save"
 msgstr "Enregistrer"
 
 #. Takes the place of "Save": op_begin hides one and reveals the
 #. * other. no_show_all: gtk_widget_show_all must not reveal it at
 #. * startup.
-#: src/sieve-editor-dialog.c:1749
+#: src/sieve-editor-dialog.c:1754
 msgid "Cancel operation"
 msgstr "Annuler l'opération"
 
-#: src/sieve-editor-dialog.c:1758
+#: src/sieve-editor-dialog.c:1763
 msgid "Not connected."
 msgstr "Non connecté."
 

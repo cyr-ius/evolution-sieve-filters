@@ -866,8 +866,13 @@ connect_task_run (GTask *task, gpointer source_object, gpointer task_data,
      * NOT copied into the plugin's keyring: it will be re-read on the
      * next connection. Only an explicit entry in the account editor page
      * populates the plugin's own keyring (and the "Forget" button
-     * removes it from there). */
-    if (from_eds_keyring)
+     * removes it from there). The note reflects the mechanism actually
+     * negotiated: the EDS password is looked up eagerly (it's needed if
+     * GSSAPI falls back), so its mere presence says nothing about
+     * whether it was used -- GSSAPI never touches it (issue #2). */
+    if (g_strcmp0 (sieve_managesieve_client_get_auth_mechanism (client), "GSSAPI") == 0)
+      keyring_note = g_strdup (_("Kerberos authentication (GSSAPI)."));
+    else if (from_eds_keyring)
       keyring_note = g_strdup (_("Password reused from the Evolution account."));
     effective_pw = NULL; /* may point at keyring_pw / eds_pw, freed right after */
     if (keyring_pw != NULL) {
