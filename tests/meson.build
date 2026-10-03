@@ -26,6 +26,13 @@ test_sieve_model = executable('test-sieve-model',
   dependencies: [glib_dep, sieve_model_dep])
 test('sieve-model', test_sieve_model)
 
+# Unit tests for the generic RFC 5228 parser (syntax tree, byte offsets,
+# per-command error recovery, nesting bound). No network.
+test_sieve_ast = executable('test-sieve-ast',
+  'test-sieve-ast.c',
+  dependencies: [glib_dep, sieve_model_dep])
+test('sieve-ast', test_sieve_ast)
+
 # Unit tests for SRV auto-discovery (domain extraction). No network.
 test_sieve_srv = executable('test-sieve-srv',
   'test-sieve-srv.c',

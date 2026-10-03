@@ -201,6 +201,14 @@ src/sieve-sasl.[ch]                SASL layer (negotiation + mechanisms),
 src/sieve-model.[ch]               Sieve rule model (criteria/actions,
                                    + "opaque" rules kept verbatim) +
                                    (de)serialization; pure GLib, testable alone
+src/sieve-ast.[ch]                 generic RFC 5228 parser -> syntax tree
+                                   (commands/tests/arguments, byte offsets
+                                   on every node, per-command recovery
+                                   from grammar errors, nesting bounded
+                                   by SIEVE_AST_MAX_DEPTH); knows no
+                                   command and no comment convention;
+                                   built into sieve_model_lib; NOT yet
+                                   used by sieve_rule_set_parse()
 src/sieve-secret.[ch]              password storage in the keyring
                                    (libsecret); pure GLib/GIO, testable alone
 src/sieve-account.[ch]             reading Evolution accounts; OAuth2
@@ -316,6 +324,9 @@ tests/test-managesieve-parser.c    response parser unit tests: the client
                                    src/sieve-managesieve-client-private.h
                                    (test-only hook, not part of the API)
 tests/test-sieve-model.c           sieve-model unit tests (no network)
+tests/test-sieve-ast.c             sieve-ast unit tests (no network): tokens,
+                                   offsets, recovery, fatal errors, depth
+                                   bound, every truncation of a script
 tests/test-sieve-secret.c          keyring round-trip; skips without Secret Service
 tests/test-sieve-config.c          per-account profiles + [manual] +
                                    last-account + [connection] migration
@@ -458,6 +469,12 @@ verbatim from another tool), and that only a lexically broken script
   still sends a `n,` gs2-header (no channel binding).
 - **A real RFC 5228 parser**, to make more constructs (`not`, `exists`,
   nested `anyof`, `vacation`…) representable at all in the visual
-  editor, plus the `variables` actions (`set`…). The `variables`
-  *require* itself is already handled: kept through the visual editor
-  and recomputed from `${...}` references (issue #4).
+  editor, plus the `variables` actions (`set`…). Step 1 done: the
+  generic parser `src/sieve-ast.[ch]` exists and is tested on its own.
+  Next step: rebuild `sieve_rule_set_parse()` / `sieve_rule_unlock()` on
+  top of it (dropping `TK_RULE` and `scan_toplevel_unit_end()`, which
+  doesn't know `text:` literals: an unbalanced `"` inside one currently
+  fails the whole parse, a `}` makes the next command get swallowed
+  into the same opaque rule), keeping `tests/test-sieve-model.c` green.
+  The `variables` *require* itself is already handled: kept through the
+  visual editor and recomputed from `${...}` references (issue #4).

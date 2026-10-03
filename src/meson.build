@@ -18,10 +18,12 @@ sieve_client_dep = declare_dependency(
   include_directories: include_directories('.'))
 
 # Sieve rule model (criteria / actions) + (de)serialization to a Sieve
-# script. Pure GLib, no GTK nor Evolution dependency: testable on its
-# own (see tests/test-sieve-model).
+# script, and the generic RFC 5228 parser it builds on (sieve-ast). Pure
+# GLib, no GTK nor Evolution dependency: testable on its own (see
+# tests/test-sieve-model, tests/test-sieve-ast).
 sieve_model_lib = static_library('sieve-model',
   'sieve-model.c',
+  'sieve-ast.c',
   dependencies: [glib_dep])
 
 sieve_model_dep = declare_dependency(
