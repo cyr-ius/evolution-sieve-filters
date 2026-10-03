@@ -445,15 +445,6 @@ arg_at (const GPtrArray *args, guint i)
   return g_ptr_array_index (args, i);
 }
 
-/* Index of the first argument that isn't a tag, from `i` on. */
-static guint
-skip_tags (const GPtrArray *args, guint i)
-{
-  while (i < args->len && arg_at (args, i)->kind == SIEVE_AST_ARG_TAG)
-    i++;
-  return i;
-}
-
 /* A single string: a bare string, or a one-entry list (semantically
  * identical). A list with more than one entry means "any of these
  * values", which only a test's value argument can represent (see
@@ -543,8 +534,11 @@ condition_from_test (const SieveAstTest *t, GError **error)
   if (t->tests != NULL)
     goto unknown_test;
 
-  if (g_strcmp0 (t->name, "header") == 0 || g_strcmp0 (t->name, "address") == 0 ||
-      g_strcmp0 (t->name, "envelope") == 0) {
+  /* Only "header": "address" / "envelope" compare a parsed address (or
+   * the SMTP envelope), not the raw header — mapping them onto a
+   * SieveCondition would change the test once re-serialized as
+   * "header". */
+  if (g_strcmp0 (t->name, "header") == 0) {
     const gchar *hdr;
 
     c = sieve_condition_new ();
@@ -577,8 +571,14 @@ condition_from_test (const SieveAstTest *t, GError **error)
     c->match = SIEVE_MATCH_OVER;
     i = 0;
     if (i < args->len && arg_at (args, i)->kind == SIEVE_AST_ARG_TAG) {
-      c->match = (g_strcmp0 (arg_at (args, i)->str, "under") == 0)
-                   ? SIEVE_MATCH_UNDER : SIEVE_MATCH_OVER;
+      const gchar *tag = arg_at (args, i)->str;
+
+      if (g_strcmp0 (tag, "under") == 0) {
+        c->match = SIEVE_MATCH_UNDER;
+      } else if (g_strcmp0 (tag, "over") != 0) {
+        unsupported (error, "tag \":%s\" not supported by the visual editor", tag);
+        goto fail;
+      }
       i++;
     }
     if (args->len - i != 1 || arg_at (args, i)->kind != SIEVE_AST_ARG_NUMBER) {
@@ -621,16 +621,11 @@ fail:
   return NULL;
 }
 
-/* "true" inside a list is accepted without adding anything, the same
- * way as a whole "true" expression (see conditions_from_expression()). */
 static gboolean
 add_condition (const SieveAstTest *t, SieveRule *rule, GError **error)
 {
-  SieveCondition *c;
+  SieveCondition *c = condition_from_test (t, error);
 
-  if (is_bare_test (t, "true"))
-    return TRUE;
-  c = condition_from_test (t, error);
   if (c == NULL)
     return FALSE;
   g_ptr_array_add (rule->conditions, c);
@@ -639,8 +634,10 @@ add_condition (const SieveAstTest *t, SieveRule *rule, GError **error)
 
 /* "allof (test, ...)" / "anyof (test, ...)" / "true" / a single
  * unwrapped test: sets rule->mode and adds to rule->conditions.
- * "true" adds nothing, since an empty condition list is serialized back
- * as "if true" (see sieve_rule_set_to_script()). "false" has no such
+ * A whole "true" adds nothing, since an empty condition list is
+ * serialized back as "if true" (see sieve_rule_set_to_script()); inside
+ * a list it's unsupported, since dropping it would turn "anyof (true,
+ * X)" (always true) into "X". "false" has no such
  * round trip: an empty condition list can only mean "true", so silently
  * accepting "false" here would flip the rule's logic on save. It's
  * therefore left unsupported (falls back to an opaque, verbatim-kept
@@ -662,6 +659,8 @@ conditions_from_expression (const SieveAstTest *t, SieveRule *rule, GError **err
   }
 
   rule->mode = SIEVE_MATCH_MODE_ALL;
+  if (is_bare_test (t, "true"))
+    return TRUE;
   return add_condition (t, rule, error);
 }
 
@@ -670,8 +669,7 @@ action_from_command (const SieveAstCommand *cmd, SieveRule *rule, GError **error
 {
   const GPtrArray *args = cmd->args;
   SieveAction *a;
-  const gchar *arg = NULL;
-  guint i;
+  const gchar *arg;
 
   if (cmd->tests != NULL || cmd->block != NULL) {
     unsupported (error, "expected \";\" after the action");
@@ -691,25 +689,27 @@ action_from_command (const SieveAstCommand *cmd, SieveRule *rule, GError **error
     return TRUE;
   }
 
+  /* Exactly one string argument, as serialized by append_action().
+   * Anything more can't be represented and is left unsupported rather
+   * than dropped: tags (":copy" keeps the implicit keep, ":flags" sets
+   * the delivered message's flags), and imap4flags' leading variable
+   * name ("addflag \"var\" \"\\Seen\"" acts on a variable, not on the
+   * message). "setflag" isn't mapped onto "addflag" either: it replaces
+   * the flags instead of adding to them. */
   if (g_strcmp0 (cmd->name, "fileinto") == 0 || g_strcmp0 (cmd->name, "redirect") == 0 ||
-      g_strcmp0 (cmd->name, "addflag") == 0 || g_strcmp0 (cmd->name, "setflag") == 0) {
-    /* Leading tags (:copy / :flags ...) are ignored. */
-    i = skip_tags (args, 0);
-    if (i >= args->len) {
-      unsupported (error, "expected a string");
+      g_strcmp0 (cmd->name, "addflag") == 0) {
+    if (args->len > 0 && arg_at (args, 0)->kind == SIEVE_AST_ARG_TAG) {
+      unsupported (error, "tag \":%s\" not supported by the visual editor",
+                   arg_at (args, 0)->str);
       return FALSE;
     }
-    arg = arg_single_string (arg_at (args, i), error);
+    if (args->len != 1) {
+      unsupported (error, "expected a single string after \"%s\"", cmd->name);
+      return FALSE;
+    }
+    arg = arg_single_string (arg_at (args, 0), error);
     if (arg == NULL)
       return FALSE;
-    /* imap4flags: "addflag \"var\" \"\\Seen\"" — keep the last string. */
-    for (i++; i < args->len; i++) {
-      if (arg_at (args, i)->kind != SIEVE_AST_ARG_STRING) {
-        unsupported (error, "expected \";\" after the action");
-        return FALSE;
-      }
-      arg = arg_at (args, i)->str;
-    }
     a = sieve_action_new (g_strcmp0 (cmd->name, "fileinto") == 0 ? SIEVE_ACTION_FILEINTO
                         : g_strcmp0 (cmd->name, "redirect") == 0 ? SIEVE_ACTION_REDIRECT
                         : SIEVE_ACTION_ADDFLAG);

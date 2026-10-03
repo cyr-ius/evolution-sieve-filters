@@ -484,8 +484,9 @@ verbatim from another tool), and that only a lexically broken script
   `sieve_rule_set_parse()` / `sieve_rule_unlock()` are built on it.
   What's left is the model + UI: `not`/`exists` (a negation flag on
   `SieveCondition`, a new `SieveMatch`), more actions (`vacation`,
-  `reject`, real `setflag`, `:copy` — today `setflag` is read back as
-  `addflag` and action tags like `:copy` are dropped), then nested
+  `reject`, `setflag`, `:copy`/`:flags`, `address`/`envelope` tests —
+  all currently left opaque rather than approximated, see
+  `/sieve-model/lossy-constructs-stay-opaque`), then nested
   `anyof`/`allof` (tree-shaped model and editor).
   The `variables` *require* itself is already handled: kept through the
   visual editor and recomputed from `${...}` references (issue #4).

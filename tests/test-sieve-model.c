@@ -1059,6 +1059,75 @@ test_unlock_with_multiline_value (void)
   sieve_rule_free (unlocked);
 }
 
+/* Constructs the model can't represent faithfully must fall back to an
+ * opaque rule, kept byte for byte — never be read back into a structured
+ * rule that would re-serialize as something with a different meaning. */
+static void
+test_lossy_constructs_stay_opaque (void)
+{
+  const gchar *const tests[] = {
+    /* setflag replaces the flags, addflag adds to them */
+    "if true { setflag \"\\\\Seen\"; }",
+    /* :copy keeps the implicit keep */
+    "if true { fileinto :copy \"Archive\"; }",
+    "if true { redirect :copy \"a@example.com\"; }",
+    "if true { fileinto :flags \"\\\\Seen\" \"Archive\"; }",
+    /* first string is a variable name, not a flag */
+    "if true { addflag \"myflags\" \"\\\\Seen\"; }",
+    /* address/envelope don't compare the raw header */
+    "if address :is \"from\" \"a@example.com\" { keep; }",
+    "if envelope :is \"from\" \"a@example.com\" { keep; }",
+    /* unknown size tag */
+    "if size :foo 1M { keep; }",
+    /* anyof (true, X) is always true, unlike X */
+    "if anyof (true, header :is \"subject\" \"x\") { keep; }",
+  };
+
+  for (guint i = 0; i < G_N_ELEMENTS (tests); i++) {
+    g_autofree gchar *script = g_strconcat ("# rule:[R]\n", tests[i], "\n", NULL);
+    g_autoptr (GError) error = NULL;
+    g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, &error);
+    g_autofree gchar *out = NULL;
+    SieveRule *r;
+
+    g_assert_no_error (error);
+    g_assert_cmpuint (set->rules->len, ==, 1);
+    r = g_ptr_array_index (set->rules, 0);
+    if (!r->opaque)
+      g_error ("should have stayed opaque: %s", tests[i]);
+    g_assert_cmpstr (r->raw, ==, script);
+    out = sieve_rule_set_to_script (set);
+    g_assert_nonnull (strstr (out, tests[i]));
+  }
+}
+
+/* The representable neighbors of the cases above stay editable. */
+static void
+test_representable_constructs_stay_structured (void)
+{
+  const gchar *const tests[] = {
+    "if true { addflag \"\\\\Seen\"; }",
+    "if true { fileinto \"Archive\"; }",
+    "if true { redirect \"a@example.com\"; }",
+    "if header :is \"from\" \"a@example.com\" { keep; }",
+    "if size :under 1M { keep; }",
+    "if size :over 1M { keep; }",
+    "if anyof (header :is \"subject\" \"x\", header :is \"subject\" \"y\") { keep; }",
+  };
+
+  for (guint i = 0; i < G_N_ELEMENTS (tests); i++) {
+    g_autofree gchar *script = g_strconcat ("# rule:[R]\n", tests[i], "\n", NULL);
+    g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+    SieveRule *r;
+
+    g_assert_nonnull (set);
+    g_assert_cmpuint (set->rules->len, ==, 1);
+    r = g_ptr_array_index (set->rules, 0);
+    if (r->opaque)
+      g_error ("should have been structured: %s", tests[i]);
+  }
+}
+
 int
 main (int argc, char **argv)
 {
@@ -1102,5 +1171,8 @@ main (int argc, char **argv)
   g_test_add_func ("/sieve-model/invalid-command-becomes-opaque", test_invalid_command_becomes_opaque);
   g_test_add_func ("/sieve-model/reject-unterminated-multiline", test_reject_unterminated_multiline);
   g_test_add_func ("/sieve-model/unlock-with-multiline-value", test_unlock_with_multiline_value);
+  g_test_add_func ("/sieve-model/lossy-constructs-stay-opaque", test_lossy_constructs_stay_opaque);
+  g_test_add_func ("/sieve-model/representable-constructs-stay-structured",
+                   test_representable_constructs_stay_structured);
   return g_test_run ();
 }
