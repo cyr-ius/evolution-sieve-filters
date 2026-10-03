@@ -136,6 +136,19 @@ update_connect_state (SieveEditorState *state)
 /* TRUE if the currently selected account has a usable ManageSieve
  * connection profile (at least a host). Used to decide whether a
  * (re)connection is possible from the "Reload rules" button. */
+/* ManageSieve host to connect to for `info`'s profile, or NULL if the
+ * account has none: a profile never saved from the account editor's
+ * "Sieve Filters" page doesn't count, but one saved with an empty
+ * "Server" field does -- it means "same as the receiving server"
+ * (info->host), as that page's description says. */
+static const gchar *
+profile_effective_host (const SieveConfig *cfg, const SieveAccountInfo *info)
+{
+  if (!cfg->saved)
+    return NULL;
+  return sieve_config_get_effective_host (cfg, info->host);
+}
+
 static gboolean
 selected_account_profile_usable (SieveEditorState *state)
 {
@@ -151,7 +164,7 @@ selected_account_profile_usable (SieveEditorState *state)
     return FALSE;
 
   cfg = sieve_config_load_for_account (info->source_uid);
-  usable = (cfg->host != NULL && *cfg->host != '\0');
+  usable = profile_effective_host (cfg, info) != NULL;
   sieve_config_free (cfg);
   return usable;
 }
@@ -368,7 +381,7 @@ on_account_changed (GtkComboBox *combo, SieveEditorState *state)
   /* Connection profile configured for this account via the account
    * editor's "Sieve Filters" page. The dialog only reads it. */
   cfg = sieve_config_load_for_account (info->source_uid);
-  usable = (cfg->host != NULL && *cfg->host != '\0');
+  usable = profile_effective_host (cfg, info) != NULL;
   sieve_config_free (cfg);
 
   update_reload_sensitive (state);
@@ -1000,6 +1013,7 @@ start_connect (SieveEditorState *state)
   ConnectTaskInput *in;
   SieveAccountInfo *info;
   SieveConfig *cfg;
+  const gchar *eff_host;
   const gchar *eff_user;
   gint active;
 
@@ -1016,18 +1030,19 @@ start_connect (SieveEditorState *state)
     return;
 
   cfg = sieve_config_load_for_account (info->source_uid);
-  if (cfg->host == NULL || *cfg->host == '\0') {
+  eff_host = profile_effective_host (cfg, info);
+  if (eff_host == NULL) {
     set_status (state, SIEVE_NO_PROFILE_HINT);
     sieve_config_free (cfg);
     return;
   }
 
-  eff_user = (cfg->user != NULL && *cfg->user != '\0')
-               ? cfg->user
-               : (info->user != NULL ? info->user : "");
+  eff_user = sieve_config_get_effective_user (cfg, info->user);
+  if (eff_user == NULL)
+    eff_user = "";
 
   in = g_new0 (ConnectTaskInput, 1);
-  in->host = g_strdup (cfg->host);
+  in->host = g_strdup (eff_host);
   in->port = cfg->port != 0
                ? cfg->port
                : (guint16) g_ascii_strtoull (SIEVE_DEFAULT_PORT, NULL, 10);
@@ -1481,11 +1496,9 @@ apply_saved_config (SieveEditorState *state)
   /* Enumerate the restored account's folders (for the "fileinto" action). */
   start_mailbox_fetch (state, info->source_uid);
 
-  eff_user = (cfg->user != NULL && *cfg->user != '\0')
-               ? cfg->user
-               : (info->user != NULL ? info->user : NULL);
+  eff_user = sieve_config_get_effective_user (cfg, info->user);
 
-  if (cfg->host != NULL && *cfg->host != '\0') {
+  if (profile_effective_host (cfg, info) != NULL) {
     if (cfg->auto_connect && eff_user != NULL && *eff_user != '\0') {
       set_status (state, _("Auto-reconnecting to the last account…"));
       start_connect (state);
@@ -1542,10 +1555,8 @@ apply_seed_config (SieveEditorState *state)
     start_mailbox_fetch (state, info->source_uid);
     remember_last_account (state);
 
-    if (cfg->host != NULL && *cfg->host != '\0') {
-      const gchar *eff_user = (cfg->user != NULL && *cfg->user != '\0')
-                                ? cfg->user
-                                : (info->user != NULL ? info->user : NULL);
+    if (profile_effective_host (cfg, info) != NULL) {
+      const gchar *eff_user = sieve_config_get_effective_user (cfg, info->user);
 
       if (eff_user != NULL && *eff_user != '\0') {
         set_status (state, _("Connecting to the message's account…"));

@@ -344,11 +344,36 @@ account_server_settings_read (ESource *account_source, AccountServerSettings *ou
   }
 }
 
+/* Host / login actually used for this page's values: the entered
+ * ones, or -- field left empty -- the receiving server's (the same
+ * fallback as the editor dialog, sieve_config_get_effective_host()).
+ * Used wherever the page connects or touches the keyring, whose
+ * entries are keyed on the EFFECTIVE (host, port, user) the dialog
+ * looks them up with. Both out values may be NULL; free with g_free. */
+static void
+sieve_config_page_dup_effective_login (SieveConfigPage *self,
+                                       gchar          **out_host,
+                                       gchar          **out_user)
+{
+  const gchar *host = gtk_entry_get_text (GTK_ENTRY (self->host_entry));
+  const gchar *user = gtk_entry_get_text (GTK_ENTRY (self->user_entry));
+  AccountServerSettings imap;
+
+  account_server_settings_read (self->account_source, &imap);
+  *out_host = g_strdup ((host != NULL && *host != '\0') ? host : imap.host);
+  *out_user = g_strdup ((user != NULL && *user != '\0') ? user : imap.user);
+  account_server_settings_clear (&imap);
+}
+
 /* --- EMailConfigPage: defaults / validation / commit ----------------- */
 
 /* Seeds the fields: the account's sieve-config profile if it exists,
  * otherwise the IMAP receiving server's details (ManageSieve most
- * often shares host + login), port 4190, StartTLS -- see
+ * often shares host + login), port 4190, StartTLS. A SAVED profile's
+ * empty host/user are left empty -- they mean "same as the receiving
+ * server" (the IMAP values are shown as the fields' placeholder
+ * text); re-filling them would silently turn that fallback into a
+ * fixed copy on the next "Apply". See
  * AccountServerSettings for why the IMAP port/security are NOT carried
  * over. When no type is saved yet, an IMAP account using GSSAPI also
  * pre-selects GSSAPI in the "Type" list
@@ -371,13 +396,15 @@ sieve_config_page_load_fields (SieveConfigPage *self)
   guint16 port = cfg->port;
 
   account_server_settings_read (self->account_source, &imap);
-  if (host == NULL) {
+  if (!cfg->saved && host == NULL) {
     host = g_strdup (imap.host);
     if (user == NULL)
       user = g_strdup (imap.user);
   }
   if (auth_mechanism == NULL && !self->account_is_oauth2)
     auth_mechanism = sieve_sasl_mechanism_for_account_method (imap.auth_method);
+  gtk_entry_set_placeholder_text (GTK_ENTRY (self->host_entry), imap.host);
+  gtk_entry_set_placeholder_text (GTK_ENTRY (self->user_entry), imap.user);
   account_server_settings_clear (&imap);
 
   gtk_entry_set_text (GTK_ENTRY (self->host_entry), host != NULL ? host : "");
@@ -440,7 +467,8 @@ keyring_write_thread (gpointer data)
   KeyringWrite *w = data;
   GError *error = NULL;
 
-  if (w->remember && w->password != NULL && *w->password != '\0') {
+  if (w->remember && w->password != NULL && *w->password != '\0'
+      && w->host != NULL && w->user != NULL) {
     if (!sieve_secret_store_password_sync (w->host, w->port, w->user,
                                            w->password, NULL, &error))
       g_warning ("sieve: failed to store password in the keyring: %s",
@@ -476,19 +504,21 @@ static void
 sieve_config_page_forget_password (GtkButton *button, gpointer user_data)
 {
   SieveConfigPage *self = SIEVE_CONFIG_PAGE (user_data);
-  const gchar *host = gtk_entry_get_text (GTK_ENTRY (self->host_entry));
-  const gchar *user = gtk_entry_get_text (GTK_ENTRY (self->user_entry));
+  g_autofree gchar *host = NULL;
+  g_autofree gchar *user = NULL;
 
   (void) button;
 
+  sieve_config_page_dup_effective_login (self, &host, &user);
+
   /* No host/user: nothing to clear in the keyring, but show the field
    * anyway (the user wants to enter a password). */
-  if (host != NULL && *host != '\0' && user != NULL && *user != '\0') {
+  if (host != NULL && user != NULL) {
     KeyringWrite *w = g_new0 (KeyringWrite, 1);
     GThread *thread;
 
-    w->host = g_strdup (host);
-    w->user = g_strdup (user);
+    w->host = g_steal_pointer (&host);
+    w->user = g_steal_pointer (&user);
     w->port = (guint16) gtk_spin_button_get_value_as_int (
                           GTK_SPIN_BUTTON (self->port_spin));
     if (w->port == 0)
@@ -651,19 +681,20 @@ check_types_set_status (SieveConfigPage *self, const gchar *text)
 static TestConnInput *
 conn_input_from_widgets (SieveConfigPage *self)
 {
-  const gchar *host = gtk_entry_get_text (GTK_ENTRY (self->host_entry));
-  const gchar *user = gtk_entry_get_text (GTK_ENTRY (self->user_entry));
+  g_autofree gchar *host = NULL;
+  g_autofree gchar *user = NULL;
   const gchar *password =
     gtk_entry_get_text (GTK_ENTRY (self->password_entry));
   TestConnInput *in;
 
-  if (host == NULL || *host == '\0') {
+  sieve_config_page_dup_effective_login (self, &host, &user);
+  if (host == NULL) {
     check_types_set_status (self, _("Please enter the server address first."));
     return NULL;
   }
 
   in = g_new0 (TestConnInput, 1);
-  in->host = g_strdup (host);
+  in->host = g_steal_pointer (&host);
   in->port = (guint16) gtk_spin_button_get_value_as_int (
                           GTK_SPIN_BUTTON (self->port_spin));
   if (in->port == 0)
@@ -1251,8 +1282,9 @@ sieve_config_page_commit_changes (EMailConfigPage *page,
     KeyringWrite *w = g_new0 (KeyringWrite, 1);
     GThread *thread;
 
-    w->host = g_strdup (cfg->host);
-    w->user = g_strdup (cfg->user);
+    /* Keyed on the effective host/user (an empty field = the receiving
+     * server's), exactly as the editor dialog looks it up. */
+    sieve_config_page_dup_effective_login (self, &w->host, &w->user);
     w->port = cfg->port != 0 ? cfg->port : SIEVE_DEFAULT_PORT;
     w->remember = TRUE;
     w->password = g_strdup (password);
@@ -1608,9 +1640,11 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
    * automatically (auth-mechanism absent). */
   {
     g_autofree gchar *mech = auth_type_dup_selected (self);
-    const gchar *host = gtk_entry_get_text (GTK_ENTRY (self->host_entry));
+    g_autofree gchar *host = NULL;
+    g_autofree gchar *user = NULL;
 
-    if (mech == NULL && host != NULL && *host != '\0')
+    sieve_config_page_dup_effective_login (self, &host, &user);
+    if (mech == NULL && host != NULL)
       sieve_config_page_check_types_clicked (NULL, self);
   }
 

@@ -25,9 +25,20 @@ G_BEGIN_DECLS
 
 typedef struct {
   gchar   *account_uid;   /* ESource UID; NULL / "" = "manual" profile */
-  gchar   *host;           /* stored ManageSieve host */
+  gboolean saved;          /* TRUE if this profile exists in state.ini
+                            * (written at least once by the account
+                            * editor's page); set by
+                            * sieve_config_load_for_account(), ignored
+                            * by sieve_config_save_for_account(). Tells
+                            * "never configured" apart from "configured
+                            * with an empty host/user", which means
+                            * "same as the receiving (IMAP) server" --
+                            * see sieve_config_get_effective_host(). */
+  gchar   *host;           /* stored ManageSieve host; NULL = the
+                            * receiving server's (see `saved`) */
   guint16  port;           /* stored ManageSieve port (0 = not set) */
-  gchar   *user;           /* stored login identifier */
+  gchar   *user;           /* stored login identifier; NULL = the
+                            * receiving server's */
   gboolean implicit_tls;   /* TRUE = implicit TLS; FALSE = StartTLS */
   gboolean auto_connect;   /* connect automatically on open */
   gchar   *auth_mechanism; /* forced SASL mechanism (UPPERCASE name);
@@ -80,10 +91,34 @@ sieve_config_get_effective_folder_separator (const SieveConfig *config)
            ? config->folder_separator : '/';
 }
 
+/* config->host if set, `fallback` otherwise (the account's receiving
+ * server host: an empty "Server" field means "same as IMAP"). NULL if
+ * neither is set. Callers that must tell "never configured" apart
+ * check config->saved first. */
+static inline const gchar *
+sieve_config_get_effective_host (const SieveConfig *config,
+                                 const gchar       *fallback)
+{
+  if (config != NULL && config->host != NULL && *config->host != '\0')
+    return config->host;
+  return (fallback != NULL && *fallback != '\0') ? fallback : NULL;
+}
+
+/* Same for the login identifier. */
+static inline const gchar *
+sieve_config_get_effective_user (const SieveConfig *config,
+                                 const gchar       *fallback)
+{
+  if (config != NULL && config->user != NULL && *config->user != '\0')
+    return config->user;
+  return (fallback != NULL && *fallback != '\0') ? fallback : NULL;
+}
+
 /* Loads the connection profile for the given account (account_uid
  * NULL / "" => "manual" profile). Never returns NULL: a missing
- * profile => default values (auto_connect = TRUE, remember_password =
- * TRUE, everything else empty/0), with config->account_uid copied
+ * profile => default values (saved = FALSE, auto_connect = TRUE,
+ * remember_password = TRUE, everything else empty/0), with
+ * config->account_uid copied
  * from the argument ("" normalized to NULL). */
 SieveConfig *sieve_config_load_for_account (const gchar *account_uid);
 

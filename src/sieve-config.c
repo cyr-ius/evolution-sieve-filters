@@ -190,6 +190,7 @@ sieve_config_load_for_account (const gchar *account_uid)
   if (!g_key_file_has_group (kf, group))
     return config;
 
+  config->saved = TRUE;
   config->host = dup_string_key (kf, group, "host");
   config->user = dup_string_key (kf, group, "user");
   config->auth_mechanism = dup_string_key (kf, group, "auth-mechanism");

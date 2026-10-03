@@ -8,7 +8,8 @@
  * Each test starts from a fresh state.ini (fixture_reset).
  *
  * Coverage: "missing file = defaults", save → load round trip for an
- * account profile, isolation between accounts + the "manual" profile,
+ * account profile, an empty host/user falling back to the receiving
+ * server's, isolation between accounts + the "manual" profile,
  * the "last account" pointer, migration from the old single-profile
  * [connection] format.
  */
@@ -52,6 +53,7 @@ test_missing_file_defaults (void)
   g_assert_false (config->implicit_tls);
   g_assert_true (config->auto_connect); /* armed by default */
   g_assert_true (config->remember_password); /* checked by default */
+  g_assert_false (config->saved);            /* never configured */
   sieve_config_free (config);
 
   /* "Manual" profile: account_uid normalized to NULL. */
@@ -155,6 +157,44 @@ test_account_round_trip_and_isolation (void)
   g_assert_true (read->auto_connect);
   g_assert_true (read->gssapi_canonicalize_hostname);   /* on by default */
   g_assert_true (read->gssapi_fallback);                /* on by default */
+  sieve_config_free (read);
+}
+
+/* A profile saved with an empty host/user still exists ("saved") and
+ * means "same as the receiving server": the effective host/user fall
+ * back to the IMAP values -- unlike a profile that was never saved. */
+static void
+test_empty_host_falls_back (void)
+{
+  GError *error = NULL;
+  SieveConfig blank = {
+    .account_uid = (gchar *) "acc-blank",
+    .host = NULL,
+    .user = NULL,
+    .auto_connect = TRUE,
+  };
+  SieveConfig *read;
+
+  fixture_reset ();
+
+  read = sieve_config_load_for_account ("acc-blank");
+  g_assert_false (read->saved);
+  sieve_config_free (read);
+
+  g_assert_true (sieve_config_save_for_account (&blank, &error));
+  g_assert_no_error (error);
+
+  read = sieve_config_load_for_account ("acc-blank");
+  g_assert_true (read->saved);
+  g_assert_null (read->host);
+  g_assert_null (read->user);
+  g_assert_cmpstr (sieve_config_get_effective_host (read, "imap.tld"), ==, "imap.tld");
+  g_assert_cmpstr (sieve_config_get_effective_user (read, "alice"), ==, "alice");
+  g_assert_null (sieve_config_get_effective_host (read, NULL));
+  g_assert_null (sieve_config_get_effective_host (read, ""));
+  g_free (read->host);
+  read->host = g_strdup ("sieve.tld");
+  g_assert_cmpstr (sieve_config_get_effective_host (read, "imap.tld"), ==, "sieve.tld");
   sieve_config_free (read);
 }
 
@@ -299,6 +339,8 @@ main (int argc, char **argv)
                    test_missing_file_defaults);
   g_test_add_func ("/sieve-config/account-round-trip-and-isolation",
                    test_account_round_trip_and_isolation);
+  g_test_add_func ("/sieve-config/empty-host-falls-back",
+                   test_empty_host_falls_back);
   g_test_add_func ("/sieve-config/manual-profile-distinct",
                    test_manual_profile_distinct);
   g_test_add_func ("/sieve-config/last-account", test_last_account);
