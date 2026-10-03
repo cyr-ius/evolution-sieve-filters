@@ -1,3 +1,19 @@
+evolution-sieve-filters (0.6.3-1) unstable; urgency=medium
+
+  * A server script that is not valid UTF-8 (e.g. an old hand-edited
+    Latin-1 script) is no longer loaded as an empty editor: it is
+    refused with a message, so "Save" can no longer overwrite the
+    server's script with nothing.
+  * The folder separator must be a single printable ASCII character:
+    a non-ASCII one (typed, read from state.ini or reported by the IMAP
+    server) is rejected instead of being cut to its first byte, which
+    produced an invalid script and the same risk of overwriting it.
+  * "Detect Automatically" (folder separator): every line and response
+    read from the IMAP server is now size-bounded, so a hostile server
+    or network attacker can no longer exhaust Evolution's memory.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sat, 03 Oct 2026 14:00:00 +0000
+
 evolution-sieve-filters (0.6.2-1) unstable; urgency=medium
 
   * Leaving the "Server" field empty in the account's "Sieve Filters"
