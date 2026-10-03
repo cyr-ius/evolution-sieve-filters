@@ -50,7 +50,10 @@ meson test -C build                       # SASL unit tests (tests/test-sasl,
                                           # no network): negotiation + OAuth;
                                           # response parser unit tests
                                           # (tests/test-managesieve-parser,
-                                          # canned server bytes, no network)
+                                          # canned server bytes, no network);
+                                          # Sieve parser + rule model
+                                          # (tests/test-sieve-ast,
+                                          # tests/test-sieve-model)
 
 tests/dovecot/smoke.sh                    # end-to-end: brings up Dovecot,
                                           # tests implicit TLS AND STARTTLS,
@@ -422,11 +425,29 @@ msgmerge --update po/fr.po po/evolution-sieve-filters.pot
 
 ## Visual editor (`sieve-model` / `sieve-rule-editor`)
 
-- Constructs that can't be represented (hand-written scripts, Nextcloud
-  Mail / Roundcube blocks, `vacation`…) are **kept verbatim** as
-  "opaque" rules (`SieveRule.opaque` / `.raw`): the visual editor shows
-  them locked (padlock, read-only), only the plain text tab can still
-  edit them.
+- What the visual editor represents: a `# rule:[name]` marker followed
+  by `if <test> { <actions> }`, where `<test>` is `true`, a single test
+  or one `allof`/`anyof` list of them. Tests: `header` (From / To / Cc /
+  Subject / any header, `:contains`/`:is`/`:matches`/`:regex`, one or
+  several values), `size :over`/`:under`, `body :text`, `exists` (one
+  header name), each optionally under a single `not`
+  (`SieveCondition.negate`). Actions: `keep`, `discard`, `stop`,
+  `fileinto`/`redirect` (optionally `:copy`, `SieveAction.copy`),
+  `addflag`/`setflag`/`removeflag` (one flag), `reject`, `vacation` with
+  `:days`/`:subject` (`SieveAction.days`/`.subject`, reply text in
+  `.arg`). In the editor, each match is offered with its negated form in
+  the same combo (`text_match_choices` / `size_match_choices` in
+  `sieve-rule-editor.c`), and reject/vacation get a multi-line form
+  under their row.
+- Everything else (unmarked rules, `elsif`/`else`, nested
+  `allof`/`anyof`, `not not`, multi-name `exists`, `address`/`envelope`,
+  `:flags`, the other `vacation` tags, unknown commands, Nextcloud Mail /
+  Roundcube blocks…) is **kept verbatim** as an "opaque" rule
+  (`SieveRule.opaque` / `.raw`): the visual editor shows it locked
+  (padlock, read-only), only the plain text tab can still edit it. The
+  rule is never approximated: a construct that would re-serialize with a
+  different meaning stays opaque (`/sieve-model/lossy-constructs-stay-opaque`
+  lists them — extend it when mapping something new).
 - Parsing is two-step: `sieve_ast_parse()` (`sieve-ast.c`, generic
   RFC 5228 tree, knows no command) then the mapping in `sieve-model.c`
   (`rule_from_if()`, `condition_from_test()`, `action_from_command()`).
@@ -436,6 +457,19 @@ msgmerge --update po/fr.po po/evolution-sieve-filters.pot
   of `sieve-ast.c`. A marked `if` followed by `elsif`/`else` stays a
   single opaque unit (a structured `if` with a dangling `else` would
   break on reorder).
+- Multi-line strings: a reject/vacation message with a newline is
+  written back as a dot-stuffed `text:` literal (`append_string()`); one
+  without a final newline gains it once, then the round trip is stable.
+- The `require` line (`sieve_rule_set_to_script()`) is recomputed for
+  the extensions the model knows (`managed_requires`: body, copy,
+  encoded-character, fileinto, imap4flags, regex, reject, vacation,
+  variables — the last two from `${...}` references, issue #4); any
+  other extension of the original line is always kept. Opaque rules'
+  text is parsed too (`collect_opaque_requires()`), but only to keep a
+  managed extension it uses from being dropped, **never to add one**
+  (re-emitted verbatim, it must keep its meaning: `${f}` without
+  `variables` is a literal); if it doesn't parse cleanly, the whole
+  original line is kept.
 - Per-rule enable/disable (`SieveRule.enabled`): a disabled rule is
   serialized as `if false # <mode>(<conditions>)` — the same convention
   Roundcube's managesieve plugin uses — so the original test survives
@@ -462,11 +496,14 @@ from: it's `sieve-editor-dialog.c` (Evolution side) that enumerates the
 chosen account's `CamelStore` (`camel_store_get_folder_info_sync`,
 cached, on a thread) and injects them via
 `sieve_rule_editor_set_mailboxes()` so the `fileinto` action can offer an
-editable dropdown. If you touch the (de)serializer, rerun `meson test`:
-`tests/test-sieve-model.c` checks that the model ⇄ script round-trip is
-stable to the character, including for opaque rules (text copied
-verbatim from another tool), and that only a lexically broken script
-(unclosed brace / string) still makes `sieve_rule_set_parse()` fail.
+editable dropdown. If you touch the parser or the (de)serializer, rerun
+`meson test`: `tests/test-sieve-ast.c` covers the RFC 5228 grammar
+itself (byte offsets, error recovery, nesting bound, every truncation of
+a script), `tests/test-sieve-model.c` checks that the model ⇄ script
+round-trip is stable to the character, including for opaque rules (text
+copied verbatim from another tool), and that only a lexically broken
+script (unclosed brace, string, `text:` literal or comment, invalid
+UTF-8) still makes `sieve_rule_set_parse()` fail.
 
 ## To do (detailed in README.md "Known limitations")
 
@@ -477,23 +514,10 @@ verbatim from another tool), and that only a lexically broken script
   is currently read only for the folder separator probe, issue #3.)
 - **SCRAM-\*-PLUS (TLS channel binding) and GS2-KRB5** — `sieve-sasl.c`
   still sends a `n,` gs2-header (no channel binding).
-- **A real RFC 5228 parser**, to make more constructs (`not`, `exists`,
-  nested `anyof`, `vacation`…) representable at all in the visual
-  editor, plus the `variables` actions (`set`…). The parsing side is
-  done: `src/sieve-ast.[ch]` (full RFC 5228 grammar) and
-  `sieve_rule_set_parse()` / `sieve_rule_unlock()` are built on it.
-  `not` (single level, `SieveCondition.negate`) and `exists`
-  (`SIEVE_MATCH_EXISTS`, one header name) are editable too: offered as
-  "does not contain" / "exists" / "does not exist"… entries of the
-  condition's match combo (`text_match_choices` in
-  `sieve-rule-editor.c`). So are `setflag`/`removeflag`, `reject`,
-  `fileinto`/`redirect :copy` (`SieveAction.copy`) and `vacation` with
-  `:days`/`:subject` (`SieveAction.days`/`.subject`; reply text in
-  `.arg`, written back as a `text:` literal when multi-line — see
-  `append_string()`). What's left: `:flags`, the other `vacation` tags
-  (`:from`, `:addresses`, `:mime`, `:handle`), `address`/`envelope`
-  tests — all left opaque rather than approximated, see
-  `/sieve-model/lossy-constructs-stay-opaque` — then nested
-  `anyof`/`allof` (tree-shaped model and editor).
-  The `variables` *require* itself is already handled: kept through the
-  visual editor and recomputed from `${...}` references (issue #4).
+- **More constructs in the visual editor** (the parser already reads
+  the full RFC 5228 grammar, see "Visual editor" above; what's missing
+  is in the model + editor): nested `anyof`/`allof` (a tree-shaped
+  model and editor — the biggest item), `elsif`/`else` chains,
+  `address`/`envelope` tests, `fileinto :flags`, the other `vacation`
+  tags (`:from`, `:addresses`, `:mime`, `:handle`), and the
+  `variables` actions (`set`…).
