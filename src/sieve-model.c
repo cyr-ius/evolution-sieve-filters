@@ -243,6 +243,49 @@ append_action (GString *out, const SieveAction *a)
   }
 }
 
+/* Extensions whose need collect_requires() can decide on its own from the
+ * structured rules: recomputed on every serialization (so they disappear
+ * when the last rule using them goes away), unlike any other extension
+ * from the original "require" line, which is always kept — see
+ * sieve_rule_set_to_script(). */
+static const gchar *const managed_requires[] = {
+  "body", "encoded-character", "fileinto", "imap4flags", "regex",
+  "variables", NULL
+};
+
+static gboolean
+is_managed_require (const gchar *ext)
+{
+  return g_strv_contains (managed_requires, ext);
+}
+
+/* Heuristic for strings typed in the visual editor: "${hex:..}" and
+ * "${unicode:..}" are RFC 5228 §2.4.2.4 encoded characters
+ * ("encoded-character"), any other "${name}" (identifier, match number
+ * or namespaced "a.b") is an RFC 5229 variable reference ("variables"). */
+static void
+collect_string_requires (const gchar *s, GHashTable *req)
+{
+  if (s == NULL)
+    return;
+
+  for (const gchar *p = strstr (s, "${"); p != NULL; p = strstr (p + 2, "${")) {
+    const gchar *q = p + 2;
+
+    if (g_ascii_strncasecmp (q, "hex:", 4) == 0 ||
+        g_ascii_strncasecmp (q, "unicode:", 8) == 0) {
+      g_hash_table_add (req, g_strdup ("encoded-character"));
+      continue;
+    }
+    if (!g_ascii_isalnum (*q) && *q != '_')
+      continue;
+    while (g_ascii_isalnum (*q) || *q == '_' || *q == '.')
+      q++;
+    if (*q == '}')
+      g_hash_table_add (req, g_strdup ("variables"));
+  }
+}
+
 static void
 collect_requires (const SieveRuleSet *set, GHashTable *req)
 {
@@ -258,6 +301,10 @@ collect_requires (const SieveRuleSet *set, GHashTable *req)
         g_hash_table_add (req, g_strdup ("body"));
       if (c->match == SIEVE_MATCH_REGEX)
         g_hash_table_add (req, g_strdup ("regex"));
+      if (c->field == SIEVE_FIELD_HEADER)
+        collect_string_requires (c->header_name, req);
+      for (guint k = 0; k < c->values->len; k++)
+        collect_string_requires (g_ptr_array_index (c->values, k), req);
     }
     for (guint j = 0; j < r->actions->len; j++) {
       const SieveAction *a = g_ptr_array_index (r->actions, j);
@@ -265,6 +312,7 @@ collect_requires (const SieveRuleSet *set, GHashTable *req)
         g_hash_table_add (req, g_strdup ("fileinto"));
       else if (a->type == SIEVE_ACTION_ADDFLAG)
         g_hash_table_add (req, g_strdup ("imap4flags"));
+      collect_string_requires (a->arg, req);
     }
   }
 }
@@ -279,8 +327,22 @@ sieve_rule_set_to_script (const SieveRuleSet *set)
 
   collect_requires (set, req);
   if (set->extra_requires != NULL) {
-    for (guint i = 0; i < set->extra_requires->len; i++)
-      g_hash_table_add (req, g_strdup (g_ptr_array_index (set->extra_requires, i)));
+    gboolean has_opaque = FALSE;
+
+    for (guint i = 0; i < set->rules->len; i++)
+      if (((SieveRule *) g_ptr_array_index (set->rules, i))->opaque) {
+        has_opaque = TRUE;
+        break;
+      }
+    /* Opaque text isn't scanned: while some remains, the whole original
+     * line is kept. Otherwise only the extensions collect_requires()
+     * can't decide on are (envelope, copy, …: unknown to the model, but
+     * possibly still relied upon — the server accepted them before). */
+    for (guint i = 0; i < set->extra_requires->len; i++) {
+      const gchar *ext = g_ptr_array_index (set->extra_requires, i);
+      if (has_opaque || !is_managed_require (ext))
+        g_hash_table_add (req, g_strdup (ext));
+    }
   }
   if (g_hash_table_size (req) > 0) {
     GList *keys = g_hash_table_get_keys (req);
@@ -1172,8 +1234,8 @@ sieve_rule_set_parse (const gchar *script, GError **error)
 
   /* Leading "require", only if it isn't preceded by any comment
    * (otherwise it belongs to a foreign block). Its extensions are kept
-   * for serialization when opaque rules remain; otherwise the line is
-   * ignored (recomputed). */
+   * in `extra_requires`; sieve_rule_set_to_script() decides which of
+   * them are re-emitted. */
   if (lx.kind == TK_IDENT && g_ascii_strcasecmp (lx.val, "require") == 0 &&
       trivia_is_blank (lx.trivia_start, lx.tok_start)) {
     while (lx.kind != TK_SEMI && lx.kind != TK_EOF) {
@@ -1245,17 +1307,8 @@ sieve_rule_set_parse (const gchar *script, GError **error)
     goto fail;
   }
 
-  {
-    gboolean has_opaque = FALSE;
-
-    for (guint i = 0; i < set->rules->len; i++)
-      if (((SieveRule *) g_ptr_array_index (set->rules, i))->opaque) {
-        has_opaque = TRUE;
-        break;
-      }
-    if (has_opaque && lead_req->len > 0)
-      set->extra_requires = g_steal_pointer (&lead_req);
-  }
+  if (lead_req->len > 0)
+    set->extra_requires = g_steal_pointer (&lead_req);
 
   g_clear_pointer (&lead_req, g_ptr_array_unref);
   lex_clear (&lx);

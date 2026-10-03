@@ -810,6 +810,104 @@ test_folder_separator_spares_opaque_rules (void)
   g_assert_nonnull (strstr (out, "fileinto \"INBOX/Kept\";"));
 }
 
+/* github.com/cyr-ius/evolution-sieve-filters/issues/4: a fully
+ * representable rule using a match variable must keep its "variables"
+ * require through a visual round trip, even with no opaque rule left to
+ * carry the original require line. */
+static void
+test_variables_require_kept (void)
+{
+  const gchar *in =
+    "require [\"fileinto\", \"variables\"];\n"
+    "\n"
+    "# rule:[Lists]\n"
+    "if allof (header :matches \"list-id\" \"*<*.lists.example.org>\")\n"
+    "{\n"
+    "  fileinto \"Lists/${2}\";\n"
+    "}\n";
+  g_autoptr (GError) error = NULL;
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (in, &error);
+  g_autofree gchar *out = NULL;
+  g_autofree gchar *out2 = NULL;
+
+  g_assert_no_error (error);
+  g_assert_cmpuint (set->rules->len, ==, 1);
+  g_assert_false (((SieveRule *) g_ptr_array_index (set->rules, 0))->opaque);
+
+  out = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (out, "require [\"fileinto\", \"variables\"];"));
+  g_assert_nonnull (strstr (out, "fileinto \"Lists/${2}\";"));
+
+  {
+    g_autoptr (SieveRuleSet) back = sieve_rule_set_parse (out, NULL);
+    out2 = sieve_rule_set_to_script (back);
+  }
+  g_assert_cmpstr (out, ==, out2);
+}
+
+/* "${...}" typed in the visual editor, with no original require line:
+ * "variables" is inferred for a variable reference, "encoded-character"
+ * (not "variables") for "${hex:..}" / "${unicode:..}", nothing for a
+ * "${" that isn't a valid reference. */
+static void
+test_variables_require_inferred (void)
+{
+  struct {
+    const gchar *value;
+    gboolean     variables;
+    gboolean     encoded;
+  } cases[] = {
+    { "Lists/${1}",          TRUE,  FALSE },
+    { "Users/${user_name}",  TRUE,  FALSE },
+    { "${env.name}",         TRUE,  FALSE },
+    { "caf${hex:C3 A9}",     FALSE, TRUE  },
+    { "${Unicode:263A}",     FALSE, TRUE  },
+    { "price ${ 5 }",        FALSE, FALSE },
+    { "unterminated ${abc",  FALSE, FALSE },
+  };
+
+  for (guint i = 0; i < G_N_ELEMENTS (cases); i++) {
+    g_autoptr (SieveRuleSet) set = sieve_rule_set_new ();
+    SieveRule *r = sieve_rule_new ("R");
+    SieveCondition *c = sieve_condition_new ();
+    g_autofree gchar *out = NULL;
+
+    c->field = SIEVE_FIELD_SUBJECT;
+    c->match = SIEVE_MATCH_CONTAINS;
+    sieve_condition_set_value (c, cases[i].value);
+    g_ptr_array_add (r->conditions, c);
+    g_ptr_array_add (r->actions, sieve_action_new (SIEVE_ACTION_KEEP));
+    g_ptr_array_add (set->rules, r);
+
+    out = sieve_rule_set_to_script (set);
+    g_assert_cmpint (strstr (out, "\"variables\"") != NULL, ==, cases[i].variables);
+    g_assert_cmpint (strstr (out, "\"encoded-character\"") != NULL, ==, cases[i].encoded);
+  }
+}
+
+/* Extensions of the original require line the model doesn't know about
+ * are kept even with no opaque rule; those it infers itself are
+ * recomputed, so they go away with the last rule needing them. */
+static void
+test_unknown_require_kept_managed_recomputed (void)
+{
+  const gchar *in =
+    "require [\"envelope\", \"fileinto\", \"regex\", \"variables\"];\n"
+    "\n"
+    "# rule:[Plain]\n"
+    "if allof (header :contains \"subject\" \"x\")\n"
+    "{\n"
+    "  keep;\n"
+    "}\n";
+  g_autoptr (GError) error = NULL;
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (in, &error);
+  g_autofree gchar *out = NULL;
+
+  g_assert_no_error (error);
+  out = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (out, "require [\"envelope\"];"));
+}
+
 int
 main (int argc, char **argv)
 {
@@ -844,5 +942,9 @@ main (int argc, char **argv)
                    test_folder_separator_noop_for_slash);
   g_test_add_func ("/sieve-model/folder-separator-spares-opaque-rules",
                    test_folder_separator_spares_opaque_rules);
+  g_test_add_func ("/sieve-model/variables-require-kept", test_variables_require_kept);
+  g_test_add_func ("/sieve-model/variables-require-inferred", test_variables_require_inferred);
+  g_test_add_func ("/sieve-model/unknown-require-kept-managed-recomputed",
+                   test_unknown_require_kept_managed_recomputed);
   return g_test_run ();
 }

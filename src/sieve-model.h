@@ -19,8 +19,11 @@
  *
  * (De)serialization:
  *   - sieve_rule_set_to_script() produces a complete Sieve script, with
- *     the "require" line computed from the extensions actually used,
- *     and a "# rule:[name]" marker before each rule (same convention as
+ *     the "require" line computed from the extensions actually used
+ *     (including "variables" / "encoded-character" when a value holds
+ *     "${...}"), plus any extension of the parsed script's original
+ *     "require" line the model can't infer itself (see
+ *     SieveRuleSet.extra_requires), and a "# rule:[name]" marker before each rule (same convention as
  *     Roundcube's ManageSieve plugin, which leaves the door open to
  *     interoperability).
  *   - sieve_rule_set_parse() reads back a script produced under these
@@ -139,8 +142,13 @@ typedef struct {
 typedef struct {
   GPtrArray *rules;          /* elements: SieveRule* */
   GPtrArray *extra_requires; /* extension names (gchar*) from the original
-                                "require" line, preserved when opaque rules
-                                are present; NULL otherwise. */
+                                "require" line, NULL if there was none.
+                                On serialization, all of them are kept
+                                while opaque rules remain; otherwise only
+                                those the model can't infer from the
+                                structured rules itself (i.e. anything
+                                but body/encoded-character/fileinto/
+                                imap4flags/regex/variables). */
 } SieveRuleSet;
 
 SieveCondition *sieve_condition_new  (void);
