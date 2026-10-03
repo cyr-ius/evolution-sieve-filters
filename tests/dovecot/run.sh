@@ -13,9 +13,10 @@
 #   - port 4191: implicit TLS  (sieve-managesieve-client's default mode)
 # Credentials: testuser / testpass
 #
-# The first run generates a self-signed certificate (CN/SAN = localhost) and
-# adds it to the container's CA store, so the client's TLS validation passes
-# without needing an "insecure" mode (the client has none).
+# The first run generates a self-signed certificate (CN/SAN = localhost); every
+# run makes sure it is in the container's CA store (re-added after a
+# devcontainer rebuild), so the client's TLS validation passes without
+# needing an "insecure" mode (the client has none).
 
 set -euo pipefail
 
@@ -43,7 +44,14 @@ if [ ! -s "$RUN/cert.pem" ] || [ ! -s "$RUN/key.pem" ]; then
     -keyout "$RUN/key.pem" -out "$RUN/cert.pem" \
     -subj "/CN=localhost" \
     -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1
-  sudo cp "$RUN/cert.pem" /usr/local/share/ca-certificates/dovecot-sieve-test.crt
+fi
+# Trust is checked on EVERY run, not only when the cert is generated: run/
+# lives in the workspace and survives a devcontainer rebuild, but the CA
+# store does not — a reused cert would otherwise no longer be trusted.
+CA_COPY=/usr/local/share/ca-certificates/dovecot-sieve-test.crt
+if ! cmp -s "$RUN/cert.pem" "$CA_COPY"; then
+  echo "Trusting the test certificate (container CA store)…" >&2
+  sudo cp "$RUN/cert.pem" "$CA_COPY"
   sudo update-ca-certificates >/dev/null
 fi
 

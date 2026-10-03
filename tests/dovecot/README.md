@@ -12,7 +12,9 @@ this directory.
 - Credentials: **`testuser` / `testpass`** (static `passwd-file` database).
 - The self-signed certificate generated on first run (CN/SAN `localhost`)
   is added to the container's CA store
-  (`/usr/local/share/ca-certificates/`) so the client's TLS validation
+  (`/usr/local/share/ca-certificates/`) — re-checked on every run, since
+  `run/` survives a devcontainer rebuild but the CA store doesn't — so the
+  client's TLS validation
   passes without an "insecure" flag (the client doesn't have one).
 - SASL GSSAPI is also exercised, against a disposable Kerberos KDC
   (`kdc.sh`) — see "GSSAPI" below.
