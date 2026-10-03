@@ -241,7 +241,9 @@ SieveRule      *sieve_rule_unlock (const SieveRule *rule, GError **error);
  * elsewhere in the script.
  *
  * `real_separator` == '/' or '\0' is a no-op (default: no account
- * configured, or the server happens to use '/' too).
+ * configured, or the server happens to use '/' too), and so is a
+ * separator sieve_folder_separator_is_valid() rejects (non-ASCII byte,
+ * control character, space, '"', '\\').
  *
  * `to_real` TRUE: '/' -> real_separator (call before serializing, i.e.
  * before sending the script to the server).

@@ -184,6 +184,7 @@ Against a real server: `test-managesieve --host … --user … [--starttls] [--p
 | `NO ... PUTSCRIPT: Invalid arguments` seen once | it was state broken by the symlink loop above, not a client bug. The client's `{N+}` literal framing is correct. |
 | `GETSCRIPT` returned the script with one extra trailing `\n` (and a "NO {N}" left a stray empty line for the next command) | the CRLF ending the line *after* a `{N}` literal is framing, not data — it was read as an extra empty data line. Fixed by `read_logical_line()` in `sieve-managesieve-client.c` (literal + rest of its line = one logical line); covered by `/parser/getscript/literal-exact` and `/parser/status/no-literal-then-next`. |
 | A non-UTF-8 script (e.g. an old hand-edited Latin-1 one) opened as an empty editor, and "Save" then overwrote it with a near-empty script | `gtk_text_buffer_set_text()` clears the buffer, then silently refuses non-UTF-8 text. Fixed on both sides: `read_literal_bytes()` (`sieve-managesieve-client.c`) rejects a non-UTF-8 `{N}` literal as a protocol error, like `read_line()` already did (`/parser/getscript/literal-invalid-utf8`); and `apply_script_to_ui()` (`sieve-editor-dialog.c`) re-checks it and drops the session instead of loading, so "Save" can't send the empty buffer. |
+| A non-ASCII folder separator ("é", typed by the user or announced by a hostile IMAP server) produced an invalid-UTF-8 script — same empty-editor / "Save" wipes the script failure as the row above | the separator is a single `gchar` everywhere, and `max_length 1` on the entry limits *characters*, not bytes: only 0xC3 was kept, then written into fileinto paths. Fixed by `sieve_folder_separator_is_valid()` / `_text_is_valid()` (`src/sieve-folder-separator.h`, header-only): exactly one printable ASCII character (no space) other than `"` and `\`, **rejected, never truncated** — at the IMAP probe (protocol error, `/imap-probe/content/invalid-separator`), on state.ini load (falls back to `/`, `/sieve-config/invalid-folder-separator-ignored`), in the account page (`check_complete` keeps Apply insensitive + inline message) and in `sieve_rule_set_translate_folder_separator()` (no-op, `/sieve-model/folder-separator-rejects-invalid`). |
 | TLS handshake `Connection reset by peer` on startup | Dovecot's `config` process crashed (invalid conf) → read `tests/dovecot/run/dovecot.log` |
 | `test-sieve-secret`: `SKIP ... Failed to execute child process "dbus-launch"` | normal outside a D-Bus session: libsecret can't start a bus. The test skips. For the real round-trip: `tests/secret/smoke.sh`. |
 | keyring smoke: `Cannot create an item in a locked collection` | the `default` Secret Service alias points to a locked collection (no graphical prompter available headless). `smoke.sh` pre-designates the `login` keyring (created unlocked via `--unlock`) via `keyrings/default`. If it persists: `pkill -9 gnome-keyring-daemon` (leftover daemon from a previous run) then rerun. |
@@ -235,6 +236,10 @@ src/sieve-imap-probe.[ch]          minimal, read-only IMAP4rev1 probe
                                    separator (issue #3 — see the
                                    pitfalls table above); pure GLib/GIO,
                                    testable alone (tests/test-imap-probe)
+src/sieve-folder-separator.h       header-only validator for the IMAP
+                                   hierarchy separator (one printable
+                                   ASCII char, not '"' nor '\\'),
+                                   shared by model/config/probe/page
 src/sieve-config.[ch]              GKeyFile preferences (XDG_CONFIG_HOME):
                                    one connection profile PER ACCOUNT
                                    ([account <UID>]) + [manual] profile +

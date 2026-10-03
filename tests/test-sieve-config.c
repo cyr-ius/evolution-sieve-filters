@@ -323,6 +323,36 @@ test_legacy_migration (void)
   g_assert_cmpstr (last, ==, "legacy-acc");
 }
 
+/* A hand-edited (or older) state.ini holding a non-ASCII or otherwise
+ * unusable folder separator must fall back to the default '/', never be
+ * cut to its first byte (0xC3 for "é" -- invalid UTF-8 in fileinto). */
+static void
+test_invalid_folder_separator_ignored (void)
+{
+  const gchar *values[] = { "é", "\"", "\\", " ", "..", ".é" };
+  g_autofree gchar *path = NULL;
+  g_autofree gchar *dir = NULL;
+
+  dir = g_build_filename (config_home, "evolution-sieve-filters", NULL);
+  path = state_file_path ();
+  g_assert_cmpint (g_mkdir_with_parents (dir, 0700), ==, 0);
+
+  for (gsize i = 0; i < G_N_ELEMENTS (values); i++) {
+    g_autoptr (GKeyFile) kf = g_key_file_new ();
+    SieveConfig *read;
+
+    fixture_reset ();
+    g_key_file_set_string (kf, "account acc-sep", "host", "sieve.tld");
+    g_key_file_set_string (kf, "account acc-sep", "folder-separator", values[i]);
+    g_assert_true (g_key_file_save_to_file (kf, path, NULL));
+
+    read = sieve_config_load_for_account ("acc-sep");
+    g_assert_cmpint (read->folder_separator, ==, '\0');
+    g_assert_cmpint (sieve_config_get_effective_folder_separator (read), ==, '/');
+    sieve_config_free (read);
+  }
+}
+
 int
 main (int argc, char **argv)
 {
@@ -347,6 +377,8 @@ main (int argc, char **argv)
   g_test_add_func ("/sieve-config/last-account-survives-profile-writes",
                    test_last_account_survives_profile_writes);
   g_test_add_func ("/sieve-config/legacy-migration", test_legacy_migration);
+  g_test_add_func ("/sieve-config/invalid-folder-separator-ignored",
+                   test_invalid_folder_separator_ignored);
 
   status = g_test_run ();
 

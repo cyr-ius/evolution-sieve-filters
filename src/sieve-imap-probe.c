@@ -7,6 +7,7 @@
 
 #include "sieve-imap-probe.h"
 #include "sieve-imap-probe-private.h"
+#include "sieve-folder-separator.h"
 
 #include <string.h>
 
@@ -331,6 +332,7 @@ typedef struct {
   gchar    separator;
   gboolean found;
   gboolean is_nil;
+  gboolean invalid;   /* found, but not a usable separator */
 } ListSeparatorCtx;
 
 /* Parses "* LIST (<flags>) <sep> <name>" (RFC 3501 §7.2.2), keeping
@@ -388,9 +390,15 @@ handle_list_untagged (const gchar *line, gpointer user_data)
       g_string_append_c (sep, *q);
       q++;
     }
+    /* Exactly one valid character, never the first byte of something
+     * longer: a hostile server answering "é" must not leave a lone
+     * 0xC3 in fileinto paths (see sieve-folder-separator.h). */
     if (sep->len >= 1) {
-      ctx->separator = sep->str[0];
       ctx->found = TRUE;
+      if (sieve_folder_separator_text_is_valid (sep->str))
+        ctx->separator = sep->str[0];
+      else
+        ctx->invalid = TRUE;
     }
   }
 }
@@ -437,6 +445,12 @@ imap_probe_session (ImapConn     *conn,
   } else if (ok && ctx.is_nil) {
     g_set_error (error, SIEVE_IMAP_PROBE_ERROR, SIEVE_IMAP_PROBE_ERROR_NO_SEPARATOR,
                  "The server reports a flat namespace (no folder hierarchy separator)");
+    ok = FALSE;
+  } else if (ok && ctx.invalid) {
+    g_set_error (error, SIEVE_IMAP_PROBE_ERROR, SIEVE_IMAP_PROBE_ERROR_PROTOCOL,
+                 "The server reports an unsupported hierarchy separator "
+                 "(only one printable ASCII character other than '\"' and '\\' "
+                 "is supported)");
     ok = FALSE;
   }
 

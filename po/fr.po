@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: evolution-sieve-filters 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-03 13:28+0000\n"
+"POT-Creation-Date: 2026-10-03 13:32+0000\n"
 "PO-Revision-Date: 2026-09-12+00:00\n"
 "Last-Translator: \n"
 "Language-Team: French\n"
@@ -82,8 +82,8 @@ msgid ""
 "The server's script is not valid UTF-8: it was not loaded, to avoid "
 "overwriting it."
 msgstr ""
-"Le script du serveur n'est pas en UTF-8 valide : il n'a pas été chargé, "
-"pour éviter de l'écraser."
+"Le script du serveur n'est pas en UTF-8 valide : il n'a pas été chargé, pour "
+"éviter de l'écraser."
 
 #: src/sieve-editor-dialog.c:534
 #, c-format
@@ -278,7 +278,7 @@ msgstr ""
 " Configurez le serveur ManageSieve de ce compte dans Édition → Comptes → "
 "onglet « Filtres Sieve », puis « Recharger les règles »."
 
-#: src/sieve-editor-dialog.c:1683 src/sieve-config-page.c:1310
+#: src/sieve-editor-dialog.c:1683 src/sieve-config-page.c:1343
 msgid "Sieve Filters"
 msgstr "Filtres Sieve"
 
@@ -333,7 +333,7 @@ msgstr "Non connecté."
 #. Description shown at the top of the page (the "Description:" line, in
 #. * the style of the "Receiving Email" page). Used to be an intro
 #. * paragraph.
-#: src/sieve-config-page.c:31
+#: src/sieve-config-page.c:32
 msgid ""
 "Connection settings for this account's Sieve filter server (ManageSieve). If "
 "left blank, the receiving server's settings are used as defaults. Rule "
@@ -344,37 +344,37 @@ msgstr ""
 "utilisés par défaut. L'édition des règles se fait dans Édition -> Filtres "
 "Sieve."
 
-#: src/sieve-config-page.c:540
+#: src/sieve-config-page.c:541
 msgid ""
 "Keyring entry cleared — enter a password (it will be stored on \"Apply\")."
 msgstr ""
 "Entrée du trousseau effacée — saisissez un mot de passe (il sera enregistré "
 "lors de l'« Application »)."
 
-#: src/sieve-config-page.c:692
+#: src/sieve-config-page.c:693
 msgid "Please enter the server address first."
 msgstr "Veuillez d'abord saisir l'adresse du serveur."
 
-#: src/sieve-config-page.c:974
+#: src/sieve-config-page.c:975
 #, c-format
 msgid "Failed: %s"
 msgstr "Échec : %s"
 
-#: src/sieve-config-page.c:998
+#: src/sieve-config-page.c:999
 #, c-format
 msgid "Working: %s."
 msgstr "Fonctionnent : %s."
 
-#: src/sieve-config-page.c:1000
+#: src/sieve-config-page.c:1001
 msgid "No type could be verified."
 msgstr "Aucun type n'a pu être vérifié."
 
-#: src/sieve-config-page.c:1002
+#: src/sieve-config-page.c:1003
 #, c-format
 msgid " Not working (struck through): %s."
 msgstr " Ne fonctionnent pas (barrés) : %s."
 
-#: src/sieve-config-page.c:1006
+#: src/sieve-config-page.c:1007
 msgid ""
 "The server rejected the credentials, so the remaining password types were "
 "not tried (to avoid locking the account)."
@@ -382,80 +382,88 @@ msgstr ""
 "Le serveur a refusé les identifiants : les autres types à mot de passe n'ont "
 "pas été essayés (pour éviter de verrouiller le compte)."
 
-#: src/sieve-config-page.c:1010
+#: src/sieve-config-page.c:1011
 msgid "Some types could not be tried: no password or token available."
 msgstr ""
 "Certains types n'ont pas pu être essayés : aucun mot de passe ni jeton "
 "disponible."
 
-#: src/sieve-config-page.c:1032
+#: src/sieve-config-page.c:1033
 #, c-format
 msgid "Selected the most secure working type: %s."
 msgstr "Type fonctionnel le plus sûr sélectionné : %s."
 
-#: src/sieve-config-page.c:1036
+#: src/sieve-config-page.c:1037
 msgid "The selected type does not work with this server."
 msgstr "Le type sélectionné ne fonctionne pas avec ce serveur."
 
 #. Translators: %s is the (English) error detail.
-#: src/sieve-config-page.c:1042
+#: src/sieve-config-page.c:1043
 #, c-format
 msgid "GSSAPI failed: %s"
 msgstr "Échec de GSSAPI : %s"
 
-#: src/sieve-config-page.c:1065
+#: src/sieve-config-page.c:1066
 msgid "Checking supported types..."
 msgstr "Vérification des types pris en charge…"
 
-#: src/sieve-config-page.c:1161
+#: src/sieve-config-page.c:1162
 #, c-format
 msgid "Detection failed: %s"
 msgstr "Détection échouée : %s"
 
-#: src/sieve-config-page.c:1168
+#: src/sieve-config-page.c:1169
 msgid "Detected: '/' (same as the model's default -- nothing to translate)."
 msgstr ""
 "Détecté : « / » (identique au comportement par défaut du modèle — rien à "
 "convertir)."
 
-#: src/sieve-config-page.c:1170
+#: src/sieve-config-page.c:1171
 #, c-format
 msgid "Detected: '%s'."
 msgstr "Détecté : « %s »."
 
-#: src/sieve-config-page.c:1194
+#: src/sieve-config-page.c:1195
 msgid "Not available for this account."
 msgstr "Non disponible pour ce compte."
 
-#: src/sieve-config-page.c:1202
+#: src/sieve-config-page.c:1203
 msgid "This account has no IMAP server configured."
 msgstr "Ce compte n'a pas de serveur IMAP configuré."
 
-#: src/sieve-config-page.c:1215
+#: src/sieve-config-page.c:1216
 msgid "Detecting..."
 msgstr "Détection en cours…"
 
-#: src/sieve-config-page.c:1394
+#: src/sieve-config-page.c:1250
+msgid ""
+"Invalid separator: use a single printable ASCII character other than '\"' "
+"and '\\'."
+msgstr ""
+"Séparateur invalide : utilisez un seul caractère ASCII imprimable autre que "
+"'\"' et '\\'."
+
+#: src/sieve-config-page.c:1428
 msgid "Server Type:"
 msgstr "Type de serveur :"
 
-#: src/sieve-config-page.c:1400
+#: src/sieve-config-page.c:1434
 msgid "Description:"
 msgstr "Description :"
 
-#: src/sieve-config-page.c:1429
+#: src/sieve-config-page.c:1463
 msgid "STARTTLS after connecting"
 msgstr "STARTTLS après connexion"
 
-#: src/sieve-config-page.c:1431
+#: src/sieve-config-page.c:1465
 msgid "TLS on a dedicated port"
 msgstr "TLS sur un port dédié"
 
-#: src/sieve-config-page.c:1436
+#: src/sieve-config-page.c:1470
 msgid "Check Supported Types"
 msgstr "Vérifier les types pris en charge"
 
-#: src/sieve-config-page.c:1439
+#: src/sieve-config-page.c:1473
 msgid ""
 "Tries each authentication type with the server and strikes through those "
 "that do not work. The selected type is kept if it works; otherwise the most "
@@ -466,11 +474,11 @@ msgstr ""
 "le plus sûr parmi ceux qui fonctionnent est sélectionné. Utilise les "
 "paramètres ci-dessus, sans les enregistrer."
 
-#: src/sieve-config-page.c:1448
+#: src/sieve-config-page.c:1482
 msgid "Canonicalize automatically (DNS)"
 msgstr "Canonicalisation automatiquement (CNAME DNS)"
 
-#: src/sieve-config-page.c:1451
+#: src/sieve-config-page.c:1485
 msgid ""
 "Resolves the connection host's DNS canonical name automatically when "
 "authenticating with GSSAPI (a forward lookup following CNAME records, same "
@@ -494,11 +502,11 @@ msgstr ""
 "fichier de configuration du greffon -- non exposée ici, et toujours "
 "prioritaire sur cette case à cocher."
 
-#: src/sieve-config-page.c:1464
+#: src/sieve-config-page.c:1498
 msgid "Fall back to another type if GSSAPI fails"
 msgstr "Se replier sur un autre type si GSSAPI échoue"
 
-#: src/sieve-config-page.c:1467
+#: src/sieve-config-page.c:1501
 msgid ""
 "When the type above is GSSAPI and Kerberos authentication fails (for example "
 "an expired ticket), tries once more with the most secure other type the "
@@ -509,19 +517,19 @@ msgstr ""
 "plus sûr parmi les autres proposés par le serveur, en utilisant le mot de "
 "passe. Décocher pour n'utiliser que GSSAPI."
 
-#: src/sieve-config-page.c:1472
+#: src/sieve-config-page.c:1506
 msgid "Password:"
 msgstr "Mot de passe :"
 
-#: src/sieve-config-page.c:1478
+#: src/sieve-config-page.c:1512
 msgid "new password"
 msgstr "nouveau mot de passe"
 
-#: src/sieve-config-page.c:1485
+#: src/sieve-config-page.c:1519
 msgid "Forget Password"
 msgstr "Oublier le mot de passe"
 
-#: src/sieve-config-page.c:1489
+#: src/sieve-config-page.c:1523
 msgid ""
 "Clears the password stored in the keyring for this account (no effect if "
 "there is none) and shows the field to enter a new one."
@@ -529,11 +537,11 @@ msgstr ""
 "Efface le mot de passe stocké dans le trousseau pour ce compte (sans effet "
 "s'il n'y en a pas) et affiche le champ pour en saisir un nouveau."
 
-#: src/sieve-config-page.c:1496
+#: src/sieve-config-page.c:1530
 msgid "Connect automatically on open"
 msgstr "Se connecter automatiquement à l'ouverture"
 
-#: src/sieve-config-page.c:1505
+#: src/sieve-config-page.c:1539
 msgid ""
 "The character this account's real IMAP server uses between folder path "
 "segments (Dovecot with Maildir++ often uses '.'). Left empty, '/' is "
@@ -549,11 +557,11 @@ msgstr ""
 "reconvertie en « / » à la lecture — sans quoi le serveur peut rejeter le "
 "filtre (« Name must not have '/' characters »)."
 
-#: src/sieve-config-page.c:1513
+#: src/sieve-config-page.c:1547
 msgid "Detect Automatically"
 msgstr "Détecter automatiquement"
 
-#: src/sieve-config-page.c:1516
+#: src/sieve-config-page.c:1550
 msgid ""
 "Opens a brief IMAP connection to this account's mail server (same host/port/"
 "encryption/password as the receiving server) to ask it directly. Not "
@@ -564,41 +572,41 @@ msgstr ""
 "demander directement. Non disponible pour les comptes OAuth2 — saisir le "
 "séparateur manuellement dans ce cas."
 
-#: src/sieve-config-page.c:1531
+#: src/sieve-config-page.c:1565
 msgid "OAuth2: access token managed by Evolution, no password to enter."
 msgstr ""
 "OAuth2 : jeton d'accès géré par Evolution, aucun mot de passe à saisir."
 
 #. "Configuration" section: server + port, then "Connect
 #. * automatically" right below the server field.
-#: src/sieve-config-page.c:1537
+#: src/sieve-config-page.c:1571
 msgid "Configuration"
 msgstr "Configuration"
 
-#: src/sieve-config-page.c:1540
+#: src/sieve-config-page.c:1574
 msgid "Server:"
 msgstr "Serveur :"
 
-#: src/sieve-config-page.c:1541
+#: src/sieve-config-page.c:1575
 msgid "Port:"
 msgstr "Port :"
 
 #. "Security" section.
-#: src/sieve-config-page.c:1549
+#: src/sieve-config-page.c:1583
 msgid "Security"
 msgstr "Sécurité"
 
-#: src/sieve-config-page.c:1551
+#: src/sieve-config-page.c:1585
 msgid "Encryption method:"
 msgstr "Méthode de chiffrement :"
 
 #. "Folders" section: the account's real IMAP hierarchy separator
 #. * (issue #3), with an automatic detection button.
-#: src/sieve-config-page.c:1556
+#: src/sieve-config-page.c:1590
 msgid "Folders"
 msgstr "Dossiers"
 
-#: src/sieve-config-page.c:1565
+#: src/sieve-config-page.c:1599
 msgid "Folder separator:"
 msgstr "Séparateur de dossiers :"
 
@@ -607,15 +615,15 @@ msgstr "Séparateur de dossiers :"
 #. * preceded by its "Password:" label (after clicking "Forget").
 #. * Everything aligned in column 1 like the login; status line
 #. * below.
-#: src/sieve-config-page.c:1574
+#: src/sieve-config-page.c:1608
 msgid "Authentication"
 msgstr "Authentification"
 
-#: src/sieve-config-page.c:1583
+#: src/sieve-config-page.c:1617
 msgid "Type:"
 msgstr "Type :"
 
-#: src/sieve-config-page.c:1586
+#: src/sieve-config-page.c:1620
 msgid "Username:"
 msgstr "Identifiant :"
 

@@ -234,6 +234,30 @@ test_invalid_utf8 (void)
   g_clear_error (&error);
 }
 
+/* A hostile/broken server announcing a non-ASCII separator ("é", two
+ * UTF-8 bytes), a multi-character one, or one that would need escaping
+ * in a Sieve string is refused -- never truncated to its first byte. */
+static void
+test_invalid_separator (void)
+{
+  const gchar *seps[] = { "\xc3\xa9", "..", "\\\"", "\\\\", " " };
+
+  for (gsize i = 0; i < G_N_ELEMENTS (seps); i++) {
+    g_autofree gchar *bytes =
+      g_strdup_printf (GREETING LOGIN_OK
+                       "* LIST (\\Noselect) \"%s\" \"\"\r\na3 OK List completed\r\n"
+                       LOGOUT_OK, seps[i]);
+    GError *error = NULL;
+    gchar sep = 0;
+
+    g_assert_false (probe_with_server (bytes, strlen (bytes), &sep, NULL, &error));
+    g_assert_error (error, SIEVE_IMAP_PROBE_ERROR, SIEVE_IMAP_PROBE_ERROR_PROTOCOL);
+    g_assert_nonnull (strstr (error->message, "unsupported hierarchy separator"));
+    g_assert_cmpint (sep, ==, 0);
+    g_clear_error (&error);
+  }
+}
+
 int
 main (int argc, char **argv)
 {
@@ -249,6 +273,7 @@ main (int argc, char **argv)
   g_test_add_func ("/imap-probe/budget/per-response", test_budget_is_per_response);
   g_test_add_func ("/imap-probe/content/nul-byte", test_nul_byte);
   g_test_add_func ("/imap-probe/content/invalid-utf8", test_invalid_utf8);
+  g_test_add_func ("/imap-probe/content/invalid-separator", test_invalid_separator);
 
   return g_test_run ();
 }

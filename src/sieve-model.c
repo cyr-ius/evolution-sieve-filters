@@ -2,6 +2,7 @@
 
 #include "sieve-model.h"
 #include "sieve-ast.h"
+#include "sieve-folder-separator.h"
 
 #include <stdarg.h>
 #include <string.h>
@@ -1461,6 +1462,10 @@ sieve_rule_set_translate_folder_separator (SieveRuleSet *set,
   g_return_if_fail (set != NULL);
 
   if (real_separator == '/' || real_separator == '\0')
+    return;
+  /* Never write a byte that would make the script invalid UTF-8 or
+   * break out of its quoted-string (see sieve-folder-separator.h). */
+  if (!sieve_folder_separator_is_valid (real_separator))
     return;
 
   for (guint i = 0; i < set->rules->len; i++) {

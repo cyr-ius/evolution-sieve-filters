@@ -812,6 +812,32 @@ test_folder_separator_spares_opaque_rules (void)
   g_assert_nonnull (strstr (out, "fileinto \"INBOX/Kept\";"));
 }
 
+/* A separator that isn't one printable ASCII character other than '"'
+ * and '\\' (e.g. 0xC3, the first byte of "é") must never be written
+ * into a fileinto path: the script would become invalid UTF-8 (or
+ * break out of its quoted-string). */
+static void
+test_folder_separator_rejects_invalid (void)
+{
+  const gchar invalid[] = { (gchar) 0xC3, '"', '\\', ' ', '\t' };
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_new ();
+  SieveRule *r = sieve_rule_new ("Archive");
+  SieveAction *a = sieve_action_new (SIEVE_ACTION_FILEINTO);
+  g_autofree gchar *script = NULL;
+
+  a->arg = g_strdup ("INBOX/Archive");
+  g_ptr_array_add (r->actions, a);
+  g_ptr_array_add (set->rules, r);
+
+  for (gsize i = 0; i < G_N_ELEMENTS (invalid); i++) {
+    sieve_rule_set_translate_folder_separator (set, invalid[i], TRUE);
+    g_assert_cmpstr (a->arg, ==, "INBOX/Archive");
+  }
+
+  script = sieve_rule_set_to_script (set);
+  g_assert_true (g_utf8_validate (script, -1, NULL));
+}
+
 /* github.com/cyr-ius/evolution-sieve-filters/issues/4: a fully
  * representable rule using a match variable must keep its "variables"
  * require through a visual round trip, even with no opaque rule left to
@@ -1557,6 +1583,8 @@ main (int argc, char **argv)
                    test_folder_separator_noop_for_slash);
   g_test_add_func ("/sieve-model/folder-separator-spares-opaque-rules",
                    test_folder_separator_spares_opaque_rules);
+  g_test_add_func ("/sieve-model/folder-separator-rejects-invalid",
+                   test_folder_separator_rejects_invalid);
   g_test_add_func ("/sieve-model/variables-require-kept", test_variables_require_kept);
   g_test_add_func ("/sieve-model/variables-require-inferred", test_variables_require_inferred);
   g_test_add_func ("/sieve-model/unknown-require-kept-managed-recomputed",

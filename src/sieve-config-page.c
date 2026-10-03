@@ -16,6 +16,7 @@
 
 #include "sieve-account.h"
 #include "sieve-config.h"
+#include "sieve-folder-separator.h"
 #include "sieve-imap-probe.h"
 #include "sieve-managesieve-client.h"
 #include "sieve-sasl.h"
@@ -1222,6 +1223,35 @@ sieve_config_page_detect_separator_clicked (GtkButton *button, gpointer user_dat
  * profile. An entered password (optional) goes to the plugin's
  * keyring; left blank, the existing entry is kept (it's the "Forget"
  * button that clears it). */
+/* Empty (= '/') or exactly one valid separator character; see
+ * sieve-folder-separator.h for why anything else is refused rather than
+ * truncated. max_length 1 on the entry limits characters, not bytes. */
+static gboolean
+folder_separator_entry_is_valid (SieveConfigPage *self)
+{
+  const gchar *sep = gtk_entry_get_text (GTK_ENTRY (self->folder_separator_entry));
+
+  return sep == NULL || *sep == '\0' || sieve_folder_separator_text_is_valid (sep);
+}
+
+static gboolean
+sieve_config_page_check_complete (EMailConfigPage *page)
+{
+  return folder_separator_entry_is_valid (SIEVE_CONFIG_PAGE (page));
+}
+
+static void
+sieve_config_page_folder_separator_changed (SieveConfigPage *self)
+{
+  if (folder_separator_entry_is_valid (self))
+    gtk_label_set_text (GTK_LABEL (self->detect_separator_status), "");
+  else
+    gtk_label_set_text (GTK_LABEL (self->detect_separator_status),
+                        _("Invalid separator: use a single printable ASCII "
+                          "character other than '\"' and '\\'."));
+  e_mail_config_page_changed (E_MAIL_CONFIG_PAGE (self));
+}
+
 static void
 sieve_config_page_commit_changes (EMailConfigPage *page,
                                   GQueue          *source_queue)
@@ -1261,7 +1291,10 @@ sieve_config_page_commit_changes (EMailConfigPage *page,
   {
     const gchar *sep =
       gtk_entry_get_text (GTK_ENTRY (self->folder_separator_entry));
-    cfg->folder_separator = (sep != NULL && *sep != '\0') ? sep[0] : '\0';
+    /* check_complete keeps Apply insensitive on an invalid value; this
+     * is only a last line of defense (never keep a truncated byte). */
+    cfg->folder_separator =
+      sieve_folder_separator_text_is_valid (sep) ? sep[0] : '\0';
   }
   /* The keyring is now the default mode (no more "Remember" checkbox:
    * any entered password is stored, the "Forget" button is what
@@ -1312,9 +1345,10 @@ sieve_config_page_iface_init (EMailConfigPageInterface *iface)
   iface->page_type = GTK_ASSISTANT_PAGE_CONTENT;
   iface->setup_defaults = sieve_config_page_setup_defaults;
   iface->commit_changes = sieve_config_page_commit_changes;
-  /* No check_complete: the spin button already bounds the port,
-   * everything else is optional (falls back to the receiving
-   * server's settings). */
+  /* The spin button already bounds the port, everything else is
+   * optional (falls back to the receiving server's settings) -- except
+   * the folder separator, which must be valid when set. */
+  iface->check_complete = sieve_config_page_check_complete;
 }
 
 /* --- Widget construction --------------------------------------------- *
@@ -1625,7 +1659,8 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
   g_signal_connect_swapped (self->gssapi_canonicalize_check, "toggled",
                             G_CALLBACK (sieve_config_page_connection_changed), self);
   g_signal_connect_swapped (self->folder_separator_entry, "changed",
-                            G_CALLBACK (e_mail_config_page_changed), self);
+                            G_CALLBACK (sieve_config_page_folder_separator_changed),
+                            self);
   g_signal_connect (self->forget_button, "clicked",
                     G_CALLBACK (sieve_config_page_forget_password), self);
   g_signal_connect (self->check_types_button, "clicked",

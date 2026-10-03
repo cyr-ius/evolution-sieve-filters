@@ -24,6 +24,7 @@
  */
 
 #include "sieve-config.h"
+#include "sieve-folder-separator.h"
 
 #include <errno.h>
 
@@ -204,7 +205,11 @@ sieve_config_load_for_account (const gchar *account_uid)
 
   {
     g_autofree gchar *sep = dup_string_key (kf, group, "folder-separator");
-    config->folder_separator = (sep != NULL && *sep != '\0') ? sep[0] : '\0';
+    /* Hand-edited or older state.ini: anything but exactly one valid
+     * character falls back to the default '/' rather than being cut
+     * to its first byte. */
+    config->folder_separator =
+      sieve_folder_separator_text_is_valid (sep) ? sep[0] : '\0';
   }
 
   {
@@ -261,7 +266,8 @@ sieve_config_save_for_account (const SieveConfig *config,
   g_key_file_set_boolean (kf, group, "gssapi-canonicalize-hostname",
                           config->gssapi_canonicalize_hostname);
   g_key_file_set_boolean (kf, group, "gssapi-fallback", config->gssapi_fallback);
-  if (config->folder_separator != '\0' && config->folder_separator != '/') {
+  if (sieve_folder_separator_is_valid (config->folder_separator)
+      && config->folder_separator != '/') {
     gchar sep[2] = { config->folder_separator, '\0' };
     g_key_file_set_string (kf, group, "folder-separator", sep);
   } else {
