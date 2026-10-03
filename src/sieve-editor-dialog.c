@@ -502,13 +502,29 @@ sync_text_to_visual (SieveEditorState *state, GError **error)
  * switches to "visual" if the script is representable, otherwise stays
  * on "text". Composes the status from `ok_prefix` ("Connected. Script
  * loaded", "Rules reloaded…") and, if given, appends `extra_note`.
- * Shared by the connect-time load and the manual reload. */
-static void
+ * Shared by the connect-time load and the manual reload.
+ *
+ * FALSE if `content` couldn't be loaded at all (not UTF-8: the text
+ * buffer would silently end up empty). The session is then dropped, so
+ * that "Save" can't send that empty buffer over the server's script. */
+static gboolean
 apply_script_to_ui (SieveEditorState *state, const gchar *content,
                     const gchar *ok_prefix, const gchar *extra_note)
 {
   GError *verror = NULL;
   gchar *base;
+
+  if (!g_utf8_validate (content, -1, NULL)) {
+    g_clear_object (&state->client);
+    g_clear_pointer (&state->active_script_name, g_free);
+    gtk_widget_set_sensitive (state->save_button, FALSE);
+    update_reload_sensitive (state);
+    update_connect_state (state);
+    gtk_stack_set_visible_child_name (GTK_STACK (state->stack), "texte");
+    set_status (state, _("The server's script is not valid UTF-8: it was "
+                         "not loaded, to avoid overwriting it."));
+    return FALSE;
+  }
 
   set_script_text (state, content);
 
@@ -533,6 +549,7 @@ apply_script_to_ui (SieveEditorState *state, const gchar *content,
     set_status (state, base);
   }
   g_free (base);
+  return TRUE;
 }
 
 /* "Seeded" mode: adds state->seed_rule (a rule pre-filled from a
@@ -992,8 +1009,11 @@ connect_task_done (GObject *source, GAsyncResult *res, gpointer user_data)
 
   /* Attempt visual editing; if the loaded script is beyond what the
    * editor can represent, stay on the raw text tab. */
-  apply_script_to_ui (state, result->script_content,
-                      _("Connected. Script loaded"), result->keyring_note);
+  if (!apply_script_to_ui (state, result->script_content,
+                           _("Connected. Script loaded"), result->keyring_note)) {
+    connect_task_result_free (result);
+    return;
+  }
 
   /* "Seeded" mode (context menu): the server's script is loaded, now add
    * the rule pre-filled from the message on top of it. */

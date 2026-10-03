@@ -227,6 +227,23 @@ test_literal_with_nul (void)
   g_object_unref (client);
 }
 
+/* A Latin-1 script ("é" = 0xE9) must fail, not come back as a string a
+ * GTK text buffer would refuse (leaving the editor empty). */
+static void
+test_literal_invalid_utf8 (void)
+{
+  static const gchar bytes[] = BANNER "{6}\r\n# caf\xe9\r\nOK\r\n";
+  SieveManageSieveClient *client = client_with_server (bytes, sizeof bytes - 1, NULL);
+  GError *error = NULL;
+  gchar *content = sieve_managesieve_client_get_script_sync (client, "s", NULL, &error);
+
+  g_assert_null (content);
+  g_assert_error (error, SIEVE_MANAGESIEVE_ERROR, SIEVE_MANAGESIEVE_ERROR_PROTOCOL);
+  g_assert_nonnull (strstr (error->message, "UTF-8"));
+  g_clear_error (&error);
+  g_object_unref (client);
+}
+
 /* ---- LISTSCRIPTS -------------------------------------------------------- */
 
 static void
@@ -464,6 +481,7 @@ main (int argc, char **argv)
   g_test_add_func ("/parser/getscript/quoted", test_getscript_quoted);
   g_test_add_func ("/parser/getscript/malformed", test_getscript_malformed);
   g_test_add_func ("/parser/getscript/literal-with-nul", test_literal_with_nul);
+  g_test_add_func ("/parser/getscript/literal-invalid-utf8", test_literal_invalid_utf8);
   g_test_add_func ("/parser/listscripts/mixed", test_listscripts);
   g_test_add_func ("/parser/listscripts/literal-active", test_listscripts_literal_active);
   g_test_add_func ("/parser/listscripts/malformed", test_listscripts_malformed);

@@ -540,6 +540,15 @@ read_literal_bytes (SieveManageSieveClient *self, gsize size,
     g_free (buf);
     return NULL;
   }
+  /* Same rule as read_line(): a script is UTF-8 (RFC 5228 §2.1), and a
+   * GTK text buffer silently refuses anything else -- which used to leave
+   * the editor empty, one "Save" away from overwriting the server's
+   * script with nothing (e.g. an old hand-edited Latin-1 script). */
+  if (!g_utf8_validate (buf, size, NULL)) {
+    set_protocol_error (error, "Invalid UTF-8 in server data");
+    g_free (buf);
+    return NULL;
+  }
   buf[bytes_read] = '\0';
   return buf;
 }
