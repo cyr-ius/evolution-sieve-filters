@@ -486,10 +486,14 @@ verbatim from another tool), and that only a lexically broken script
   (`SIEVE_MATCH_EXISTS`, one header name) are editable too: offered as
   "does not contain" / "exists" / "does not exist"… entries of the
   condition's match combo (`text_match_choices` in
-  `sieve-rule-editor.c`). What's left is more actions (`vacation`,
-  `reject`, `setflag`, `:copy`/`:flags`, `address`/`envelope` tests —
-  all currently left opaque rather than approximated, see
-  `/sieve-model/lossy-constructs-stay-opaque`), then nested
+  `sieve-rule-editor.c`). So are `setflag`/`removeflag`, `reject`,
+  `fileinto`/`redirect :copy` (`SieveAction.copy`) and `vacation` with
+  `:days`/`:subject` (`SieveAction.days`/`.subject`; reply text in
+  `.arg`, written back as a `text:` literal when multi-line — see
+  `append_string()`). What's left: `:flags`, the other `vacation` tags
+  (`:from`, `:addresses`, `:mime`, `:handle`), `address`/`envelope`
+  tests — all left opaque rather than approximated, see
+  `/sieve-model/lossy-constructs-stay-opaque` — then nested
   `anyof`/`allof` (tree-shaped model and editor).
   The `variables` *require* itself is already handled: kept through the
   visual editor and recomputed from `${...}` references (issue #4).

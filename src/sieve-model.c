@@ -60,6 +60,7 @@ sieve_action_free (SieveAction *action)
   if (action == NULL)
     return;
   g_free (action->arg);
+  g_free (action->subject);
   g_free (action);
 }
 
@@ -155,6 +156,37 @@ append_quoted (GString *out, const gchar *s)
   g_string_append_c (out, '"');
 }
 
+/* Appends `s` as a quoted string, or as a "text:" multi-line literal
+ * (RFC 5228 §2.4.2) if it spans several lines — the readable form for a
+ * vacation / reject message. Lines are dot-stuffed; a last line without
+ * a terminator gets one (a "text:" literal is made of whole lines), so
+ * the value read back may gain a final "\n" once, then stays stable. */
+static void
+append_string (GString *out, const gchar *s)
+{
+  const gchar *p = (s != NULL) ? s : "";
+
+  if (strchr (p, '\n') == NULL) {
+    append_quoted (out, p);
+    return;
+  }
+
+  g_string_append (out, "text:\n");
+  while (*p != '\0') {
+    const gchar *eol = strchr (p, '\n');
+    gsize len = (eol != NULL) ? (gsize) (eol - p) : strlen (p);
+
+    if (*p == '.')
+      g_string_append_c (out, '.');
+    g_string_append_len (out, p, len);
+    g_string_append_c (out, '\n');
+    p += len;
+    if (*p == '\n')
+      p++;
+  }
+  g_string_append (out, ".\n");
+}
+
 /* A rule name ends up in "# rule:[...]": strip out characters that
  * would break the marker or the line. */
 static gchar *
@@ -235,18 +267,39 @@ append_action (GString *out, const SieveAction *a)
       g_string_append (out, "\tstop;\n");
       break;
     case SIEVE_ACTION_FILEINTO:
-      g_string_append (out, "\tfileinto ");
+      g_string_append (out, a->copy ? "\tfileinto :copy " : "\tfileinto ");
       append_quoted (out, (a->arg != NULL && *a->arg != '\0') ? a->arg : "INBOX");
       g_string_append (out, ";\n");
       break;
     case SIEVE_ACTION_REDIRECT:
-      g_string_append (out, "\tredirect ");
+      g_string_append (out, a->copy ? "\tredirect :copy " : "\tredirect ");
       append_quoted (out, a->arg != NULL ? a->arg : "");
       g_string_append (out, ";\n");
       break;
     case SIEVE_ACTION_ADDFLAG:
-      g_string_append (out, "\taddflag ");
+    case SIEVE_ACTION_SETFLAG:
+    case SIEVE_ACTION_REMOVEFLAG:
+      g_string_append (out, a->type == SIEVE_ACTION_ADDFLAG ? "\taddflag "
+                          : a->type == SIEVE_ACTION_SETFLAG ? "\tsetflag "
+                          : "\tremoveflag ");
       append_quoted (out, (a->arg != NULL && *a->arg != '\0') ? a->arg : "\\Seen");
+      g_string_append (out, ";\n");
+      break;
+    case SIEVE_ACTION_REJECT:
+      g_string_append (out, "\treject ");
+      append_string (out, a->arg);
+      g_string_append (out, ";\n");
+      break;
+    case SIEVE_ACTION_VACATION:
+      g_string_append (out, "\tvacation ");
+      if (a->days > 0)
+        g_string_append_printf (out, ":days %u ", a->days);
+      if (a->subject != NULL && *a->subject != '\0') {
+        g_string_append (out, ":subject ");
+        append_quoted (out, a->subject);
+        g_string_append_c (out, ' ');
+      }
+      append_string (out, a->arg);
       g_string_append (out, ";\n");
       break;
     default:
@@ -260,8 +313,8 @@ append_action (GString *out, const SieveAction *a)
  * from the original "require" line, which is always kept — see
  * sieve_rule_set_to_script(). */
 static const gchar *const managed_requires[] = {
-  "body", "encoded-character", "fileinto", "imap4flags", "regex",
-  "variables", NULL
+  "body", "copy", "encoded-character", "fileinto", "imap4flags", "regex",
+  "reject", "vacation", "variables", NULL
 };
 
 static gboolean
@@ -321,13 +374,121 @@ collect_requires (const SieveRuleSet *set, GHashTable *req)
     }
     for (guint j = 0; j < r->actions->len; j++) {
       const SieveAction *a = g_ptr_array_index (r->actions, j);
-      if (a->type == SIEVE_ACTION_FILEINTO)
-        g_hash_table_add (req, g_strdup ("fileinto"));
-      else if (a->type == SIEVE_ACTION_ADDFLAG)
-        g_hash_table_add (req, g_strdup ("imap4flags"));
+      switch (a->type) {
+        case SIEVE_ACTION_FILEINTO:
+          g_hash_table_add (req, g_strdup ("fileinto"));
+          break;
+        case SIEVE_ACTION_ADDFLAG:
+        case SIEVE_ACTION_SETFLAG:
+        case SIEVE_ACTION_REMOVEFLAG:
+          g_hash_table_add (req, g_strdup ("imap4flags"));
+          break;
+        case SIEVE_ACTION_REJECT:
+          g_hash_table_add (req, g_strdup ("reject"));
+          break;
+        case SIEVE_ACTION_VACATION:
+          g_hash_table_add (req, g_strdup ("vacation"));
+          collect_string_requires (a->subject, req);
+          break;
+        default:
+          break;
+      }
+      if (a->copy && (a->type == SIEVE_ACTION_FILEINTO ||
+                      a->type == SIEVE_ACTION_REDIRECT))
+        g_hash_table_add (req, g_strdup ("copy"));
       collect_string_requires (a->arg, req);
     }
   }
+}
+
+static void collect_ast_tests_requires (const GPtrArray *tests, GHashTable *req);
+
+/* Managed extensions (see managed_requires) used by an argument list:
+ * tags, and "${...}" references in strings. */
+static void
+collect_ast_args_requires (const GPtrArray *args, GHashTable *req)
+{
+  for (guint i = 0; i < args->len; i++) {
+    const SieveAstArg *arg = g_ptr_array_index (args, i);
+
+    switch (arg->kind) {
+      case SIEVE_AST_ARG_TAG:
+        if (g_strcmp0 (arg->str, "copy") == 0)
+          g_hash_table_add (req, g_strdup ("copy"));
+        else if (g_strcmp0 (arg->str, "flags") == 0)
+          g_hash_table_add (req, g_strdup ("imap4flags"));
+        else if (g_strcmp0 (arg->str, "regex") == 0)
+          g_hash_table_add (req, g_strdup ("regex"));
+        break;
+      case SIEVE_AST_ARG_STRING:
+        collect_string_requires (arg->str, req);
+        break;
+      case SIEVE_AST_ARG_STRING_LIST:
+        for (guint k = 0; k < arg->list->len; k++)
+          collect_string_requires (g_ptr_array_index (arg->list, k), req);
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+static void
+collect_ast_tests_requires (const GPtrArray *tests, GHashTable *req)
+{
+  for (guint i = 0; tests != NULL && i < tests->len; i++) {
+    const SieveAstTest *t = g_ptr_array_index (tests, i);
+
+    if (g_strcmp0 (t->name, "body") == 0)
+      g_hash_table_add (req, g_strdup ("body"));
+    else if (g_strcmp0 (t->name, "hasflag") == 0)
+      g_hash_table_add (req, g_strdup ("imap4flags"));
+    else if (g_strcmp0 (t->name, "string") == 0)
+      g_hash_table_add (req, g_strdup ("variables"));
+    collect_ast_args_requires (t->args, req);
+    collect_ast_tests_requires (t->tests, req);
+  }
+}
+
+static void
+collect_ast_commands_requires (const GPtrArray *commands, GHashTable *req)
+{
+  static const struct {
+    const gchar *command;
+    const gchar *ext;
+  } command_exts[] = {
+    { "fileinto", "fileinto" },  { "reject", "reject" },
+    { "vacation", "vacation" },  { "addflag", "imap4flags" },
+    { "setflag", "imap4flags" }, { "removeflag", "imap4flags" },
+    { "set", "variables" },
+  };
+
+  for (guint i = 0; commands != NULL && i < commands->len; i++) {
+    const SieveAstCommand *cmd = g_ptr_array_index (commands, i);
+
+    for (guint k = 0; k < G_N_ELEMENTS (command_exts); k++)
+      if (g_strcmp0 (cmd->name, command_exts[k].command) == 0)
+        g_hash_table_add (req, g_strdup (command_exts[k].ext));
+    collect_ast_args_requires (cmd->args, req);
+    collect_ast_tests_requires (cmd->tests, req);
+    collect_ast_commands_requires (cmd->block, req);
+  }
+}
+
+/* Managed extensions an opaque rule's text relies on. FALSE if the text
+ * doesn't parse cleanly: the caller can't tell what it needs then. */
+static gboolean
+collect_opaque_requires (const gchar *raw, GHashTable *req)
+{
+  g_autoptr (SieveAst) ast = sieve_ast_parse (raw != NULL ? raw : "", NULL);
+
+  if (ast == NULL)
+    return FALSE;
+  for (guint i = 0; i < ast->commands->len; i++)
+    if (((SieveAstCommand *) g_ptr_array_index (ast->commands, i))->name == NULL)
+      return FALSE;
+  collect_ast_commands_requires (ast->commands, req);
+  return TRUE;
 }
 
 gchar *
@@ -340,20 +501,29 @@ sieve_rule_set_to_script (const SieveRuleSet *set)
 
   collect_requires (set, req);
   if (set->extra_requires != NULL) {
-    gboolean has_opaque = FALSE;
+    g_autoptr (GHashTable) opaque_req =
+      g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+    gboolean keep_all = FALSE;
 
-    for (guint i = 0; i < set->rules->len; i++)
-      if (((SieveRule *) g_ptr_array_index (set->rules, i))->opaque) {
-        has_opaque = TRUE;
-        break;
-      }
-    /* Opaque text isn't scanned: while some remains, the whole original
-     * line is kept. Otherwise only the extensions collect_requires()
-     * can't decide on are (envelope, copy, …: unknown to the model, but
-     * possibly still relied upon — the server accepted them before). */
+    /* Opaque text is scanned for the managed extensions it uses too.
+     * Only if one doesn't parse cleanly is the whole original line kept,
+     * since what it needs can't be told then. */
+    for (guint i = 0; i < set->rules->len && !keep_all; i++) {
+      const SieveRule *r = g_ptr_array_index (set->rules, i);
+
+      if (r->opaque && !collect_opaque_requires (r->raw, opaque_req))
+        keep_all = TRUE;
+    }
+    /* Extensions collect_requires() can't decide on (envelope, mailbox…:
+     * unknown to the model, but possibly still relied upon — the server
+     * accepted them before) are always kept. What opaque text uses only
+     * keeps an extension from being dropped, never adds one: opaque
+     * text is re-emitted as is, so it must keep meaning what it meant
+     * (a "${f}" without "variables" is a literal string). */
     for (guint i = 0; i < set->extra_requires->len; i++) {
       const gchar *ext = g_ptr_array_index (set->extra_requires, i);
-      if (has_opaque || !is_managed_require (ext))
+      if (keep_all || !is_managed_require (ext) ||
+          g_hash_table_contains (opaque_req, ext))
         g_hash_table_add (req, g_strdup (ext));
     }
   }
@@ -713,6 +883,50 @@ conditions_from_expression (const SieveAstTest *t, SieveRule *rule, GError **err
   return add_condition (t, rule, error);
 }
 
+/* vacation [:days N] [:subject "..."] <reason> (RFC 5230). The other
+ * tags (:from, :addresses, :mime, :handle, :seconds...) aren't
+ * representable. */
+static gboolean
+vacation_from_command (const SieveAstCommand *cmd, SieveRule *rule, GError **error)
+{
+  const GPtrArray *args = cmd->args;
+  SieveAction *a = sieve_action_new (SIEVE_ACTION_VACATION);
+  const gchar *reason;
+  guint i = 0;
+
+  for (; i < args->len && arg_at (args, i)->kind == SIEVE_AST_ARG_TAG; i++) {
+    const gchar *tag = arg_at (args, i)->str;
+    const SieveAstArg *val = (i + 1 < args->len) ? arg_at (args, i + 1) : NULL;
+
+    if (g_strcmp0 (tag, "days") == 0 && a->days == 0 && val != NULL &&
+        val->kind == SIEVE_AST_ARG_NUMBER && val->number >= 1 &&
+        val->number <= G_MAXUINT) {
+      a->days = (guint) val->number;
+    } else if (g_strcmp0 (tag, "subject") == 0 && a->subject == NULL &&
+               val != NULL && val->kind == SIEVE_AST_ARG_STRING) {
+      a->subject = g_strdup (val->str);
+    } else {
+      unsupported (error, "vacation tag \":%s\" not supported by the visual editor", tag);
+      goto fail;
+    }
+    i++; /* the tag's value */
+  }
+  if (args->len - i != 1) {
+    unsupported (error, "expected a single reason string after \"vacation\"");
+    goto fail;
+  }
+  reason = arg_single_string (arg_at (args, i), error);
+  if (reason == NULL)
+    goto fail;
+  a->arg = g_strdup (reason);
+  g_ptr_array_add (rule->actions, a);
+  return TRUE;
+
+fail:
+  sieve_action_free (a);
+  return FALSE;
+}
+
 static gboolean
 action_from_command (const SieveAstCommand *cmd, SieveRule *rule, GError **error)
 {
@@ -738,33 +952,58 @@ action_from_command (const SieveAstCommand *cmd, SieveRule *rule, GError **error
     return TRUE;
   }
 
-  /* Exactly one string argument, as serialized by append_action().
-   * Anything more can't be represented and is left unsupported rather
-   * than dropped: tags (":copy" keeps the implicit keep, ":flags" sets
-   * the delivered message's flags), and imap4flags' leading variable
-   * name ("addflag \"var\" \"\\Seen\"" acts on a variable, not on the
-   * message). "setflag" isn't mapped onto "addflag" either: it replaces
-   * the flags instead of adding to them. */
-  if (g_strcmp0 (cmd->name, "fileinto") == 0 || g_strcmp0 (cmd->name, "redirect") == 0 ||
-      g_strcmp0 (cmd->name, "addflag") == 0) {
-    if (args->len > 0 && arg_at (args, 0)->kind == SIEVE_AST_ARG_TAG) {
-      unsupported (error, "tag \":%s\" not supported by the visual editor",
-                   arg_at (args, 0)->str);
-      return FALSE;
+  if (g_strcmp0 (cmd->name, "vacation") == 0)
+    return vacation_from_command (cmd, rule, error);
+
+  /* Exactly one string argument, as serialized by append_action(), plus
+   * ":copy" for fileinto / redirect. Anything more can't be represented
+   * and is left unsupported rather than dropped: other tags (":flags"
+   * sets the delivered message's flags...), and imap4flags' leading
+   * variable name ("addflag \"var\" \"\\Seen\"" acts on a variable,
+   * not on the message). */
+  {
+    static const struct {
+      const gchar     *name;
+      SieveActionType  type;
+      gboolean         copy_allowed;
+    } simple[] = {
+      { "fileinto",   SIEVE_ACTION_FILEINTO,   TRUE  },
+      { "redirect",   SIEVE_ACTION_REDIRECT,   TRUE  },
+      { "addflag",    SIEVE_ACTION_ADDFLAG,    FALSE },
+      { "setflag",    SIEVE_ACTION_SETFLAG,    FALSE },
+      { "removeflag", SIEVE_ACTION_REMOVEFLAG, FALSE },
+      { "reject",     SIEVE_ACTION_REJECT,     FALSE },
+    };
+
+    for (guint k = 0; k < G_N_ELEMENTS (simple); k++) {
+      gboolean copy = FALSE;
+      guint i = 0;
+
+      if (g_strcmp0 (cmd->name, simple[k].name) != 0)
+        continue;
+
+      for (; i < args->len && arg_at (args, i)->kind == SIEVE_AST_ARG_TAG; i++) {
+        if (!simple[k].copy_allowed || copy ||
+            g_strcmp0 (arg_at (args, i)->str, "copy") != 0) {
+          unsupported (error, "tag \":%s\" not supported by the visual editor",
+                       arg_at (args, i)->str);
+          return FALSE;
+        }
+        copy = TRUE;
+      }
+      if (args->len - i != 1) {
+        unsupported (error, "expected a single string after \"%s\"", cmd->name);
+        return FALSE;
+      }
+      arg = arg_single_string (arg_at (args, i), error);
+      if (arg == NULL)
+        return FALSE;
+      a = sieve_action_new (simple[k].type);
+      a->arg = g_strdup (arg);
+      a->copy = copy;
+      g_ptr_array_add (rule->actions, a);
+      return TRUE;
     }
-    if (args->len != 1) {
-      unsupported (error, "expected a single string after \"%s\"", cmd->name);
-      return FALSE;
-    }
-    arg = arg_single_string (arg_at (args, 0), error);
-    if (arg == NULL)
-      return FALSE;
-    a = sieve_action_new (g_strcmp0 (cmd->name, "fileinto") == 0 ? SIEVE_ACTION_FILEINTO
-                        : g_strcmp0 (cmd->name, "redirect") == 0 ? SIEVE_ACTION_REDIRECT
-                        : SIEVE_ACTION_ADDFLAG);
-    a->arg = g_strdup (arg);
-    g_ptr_array_add (rule->actions, a);
-    return TRUE;
   }
 
   unsupported (error, "action \"%s\" not supported by the visual editor", cmd->name);

@@ -13,11 +13,13 @@ filters.
 - **Visual editor** for rules, in the style of Evolution's "Message
   Filters": a list of rules, criteria (sender, recipient, subject,
   header, size, body…, including negated ones — "does not contain" — and
-  "header exists / does not exist") and actions (file into, forward, mark, delete,
-  stop processing…) built without writing a script by hand. Rules can
-  be individually enabled/disabled without deleting them.
+  "header exists / does not exist") and actions (file into, forward —
+  optionally keeping a copy —, add / set / remove IMAP flags, reject,
+  vacation auto-reply, delete, stop processing…) built without writing
+  a script by hand. Rules can be individually enabled/disabled without
+  deleting them.
 - **Plain text editor** as a fallback, for anything the visual editor
-  doesn't represent yet (`vacation`, hand-written rules, scripts from
+  doesn't represent yet (nested conditions, hand-written rules, scripts from
   other tools…) — these rules are kept **verbatim** and shown locked in
   the visual editor rather than being lost or mangled.
 - **Evolution integration**: an *Edit → Sieve Filters…* menu entry, a

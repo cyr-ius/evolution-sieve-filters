@@ -220,16 +220,16 @@ test_handwritten_becomes_opaque (void)
   g_assert_cmpstr (script, ==, script2);
 }
 
-/* Marker "# rule:[…]" but an unhandled action (`vacation`): falls back to
+/* Marker "# rule:[…]" but an unhandled action (`notify`): falls back to
  * an opaque rule, the marker's name still used for display. */
 static void
 test_unsupported_action_becomes_opaque (void)
 {
   const gchar *script =
-    "# rule:[Vacation]\n"
+    "# rule:[Notify]\n"
     "if true\n"
     "{\n"
-    "\tvacation \"away\";\n"
+    "\tnotify \"mailto:a@example.com\";\n"
     "}\n";
   g_autoptr (GError) error = NULL;
   g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, &error);
@@ -242,12 +242,12 @@ test_unsupported_action_becomes_opaque (void)
 
   r = g_ptr_array_index (set->rules, 0);
   g_assert_true (r->opaque);
-  g_assert_cmpstr (r->name, ==, "Vacation");
-  g_assert_nonnull (strstr (r->raw, "vacation \"away\";"));
+  g_assert_cmpstr (r->name, ==, "Notify");
+  g_assert_nonnull (strstr (r->raw, "notify \"mailto:a@example.com\";"));
 
   out = sieve_rule_set_to_script (set);
-  g_assert_nonnull (strstr (out, "# rule:[Vacation]"));
-  g_assert_nonnull (strstr (out, "vacation \"away\";"));
+  g_assert_nonnull (strstr (out, "# rule:[Notify]"));
+  g_assert_nonnull (strstr (out, "notify \"mailto:a@example.com\";"));
 }
 
 /* "Nextcloud Mail" block (no marker, "### … ###" banners before AND
@@ -1066,11 +1066,7 @@ static void
 test_lossy_constructs_stay_opaque (void)
 {
   const gchar *const tests[] = {
-    /* setflag replaces the flags, addflag adds to them */
-    "if true { setflag \"\\\\Seen\"; }",
-    /* :copy keeps the implicit keep */
-    "if true { fileinto :copy \"Archive\"; }",
-    "if true { redirect :copy \"a@example.com\"; }",
+    /* :flags sets the delivered message's flags */
     "if true { fileinto :flags \"\\\\Seen\" \"Archive\"; }",
     /* first string is a variable name, not a flag */
     "if true { addflag \"myflags\" \"\\\\Seen\"; }",
@@ -1086,6 +1082,15 @@ test_lossy_constructs_stay_opaque (void)
     /* not of something other than a single representable test */
     "if not true { keep; }",
     "if not anyof (header :is \"subject\" \"x\", header :is \"subject\" \"y\") { keep; }",
+    /* vacation tags the editor doesn't offer, or a :days it can't keep */
+    "if true { vacation :from \"me@example.com\" \"Away\"; }",
+    "if true { vacation :addresses [\"a@example.com\"] \"Away\"; }",
+    "if true { vacation :mime \"Away\"; }",
+    "if true { vacation :days 0 \"Away\"; }",
+    "if true { vacation :days 3 :days 4 \"Away\"; }",
+    "if true { reject [\"a\", \"b\"]; }",
+    "if true { fileinto :copy :copy \"Archive\"; }",
+    "if true { addflag :copy \"\\\\Seen\"; }",
     /* several names: "all of them exist" */
     "if exists [\"X-A\", \"X-B\"] { keep; }",
   };
@@ -1114,7 +1119,13 @@ test_representable_constructs_stay_structured (void)
 {
   const gchar *const tests[] = {
     "if true { addflag \"\\\\Seen\"; }",
+    "if true { setflag \"\\\\Seen\"; }",
+    "if true { removeflag \"\\\\Seen\"; }",
     "if true { fileinto \"Archive\"; }",
+    "if true { fileinto :copy \"Archive\"; }",
+    "if true { redirect :copy \"a@example.com\"; }",
+    "if true { reject \"Go away\"; }",
+    "if true { vacation :days 3 :subject \"Away\" \"I'm away\"; }",
     "if true { redirect \"a@example.com\"; }",
     "if header :is \"from\" \"a@example.com\" { keep; }",
     "if size :under 1M { keep; }",
@@ -1252,6 +1263,153 @@ test_not_in_disabled_rule_and_unlock (void)
   sieve_rule_free (unlocked);
 }
 
+/* Lot 4: new editable actions, read back field by field, re-serialized
+ * with the right requires, and stable. */
+static void
+test_new_actions_roundtrip (void)
+{
+  const gchar *script =
+    "require [\"copy\", \"fileinto\", \"imap4flags\", \"reject\", \"vacation\"];\n"
+    "\n"
+    "# rule:[Actions]\n"
+    "if header :contains \"subject\" \"x\"\n"
+    "{\n"
+    "\tfileinto :copy \"Archive\";\n"
+    "\tredirect :copy \"a@example.com\";\n"
+    "\tsetflag \"\\\\Seen\";\n"
+    "\tremoveflag \"\\\\Flagged\";\n"
+    "\treject \"Not here\";\n"
+    "\tvacation :days 3 :subject \"Away\" \"Back on Monday\";\n"
+    "}\n";
+  g_autoptr (GError) error = NULL;
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, &error);
+  g_autofree gchar *out = NULL;
+  SieveRule *r;
+  SieveAction *a;
+
+  g_assert_no_error (error);
+  r = g_ptr_array_index (set->rules, 0);
+  g_assert_false (r->opaque);
+  g_assert_cmpuint (r->actions->len, ==, 6);
+
+  a = g_ptr_array_index (r->actions, 0);
+  g_assert_cmpint (a->type, ==, SIEVE_ACTION_FILEINTO);
+  g_assert_true (a->copy);
+  g_assert_cmpstr (a->arg, ==, "Archive");
+  a = g_ptr_array_index (r->actions, 1);
+  g_assert_cmpint (a->type, ==, SIEVE_ACTION_REDIRECT);
+  g_assert_true (a->copy);
+  a = g_ptr_array_index (r->actions, 2);
+  g_assert_cmpint (a->type, ==, SIEVE_ACTION_SETFLAG);
+  g_assert_cmpstr (a->arg, ==, "\\Seen");
+  a = g_ptr_array_index (r->actions, 3);
+  g_assert_cmpint (a->type, ==, SIEVE_ACTION_REMOVEFLAG);
+  g_assert_cmpstr (a->arg, ==, "\\Flagged");
+  a = g_ptr_array_index (r->actions, 4);
+  g_assert_cmpint (a->type, ==, SIEVE_ACTION_REJECT);
+  g_assert_cmpstr (a->arg, ==, "Not here");
+  a = g_ptr_array_index (r->actions, 5);
+  g_assert_cmpint (a->type, ==, SIEVE_ACTION_VACATION);
+  g_assert_cmpuint (a->days, ==, 3);
+  g_assert_cmpstr (a->subject, ==, "Away");
+  g_assert_cmpstr (a->arg, ==, "Back on Monday");
+
+  /* The visual editor's own output is the input above, re-wrapped. */
+  out = sieve_rule_set_to_script (set);
+  g_assert_true (g_str_has_prefix (out,
+    "require [\"copy\", \"fileinto\", \"imap4flags\", \"reject\", \"vacation\"];\n"));
+  g_assert_nonnull (strstr (out, "\tfileinto :copy \"Archive\";\n"));
+  g_assert_nonnull (strstr (out, "\tredirect :copy \"a@example.com\";\n"));
+  g_assert_nonnull (strstr (out, "\tsetflag \"\\\\Seen\";\n"));
+  g_assert_nonnull (strstr (out, "\tremoveflag \"\\\\Flagged\";\n"));
+  g_assert_nonnull (strstr (out, "\treject \"Not here\";\n"));
+  g_assert_nonnull (strstr (out, "\tvacation :days 3 :subject \"Away\" \"Back on Monday\";\n"));
+  assert_stable_roundtrip (set);
+}
+
+/* A multi-line vacation / reject message is written as a "text:"
+ * literal, dot-stuffed, and survives the round trip; a message without
+ * a final newline gains one once, then stays stable. */
+static void
+test_vacation_multiline_message (void)
+{
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_new ();
+  SieveRule *r = sieve_rule_new ("Away");
+  SieveAction *a = sieve_action_new (SIEVE_ACTION_VACATION);
+  g_autofree gchar *out = NULL;
+  g_autoptr (SieveRuleSet) back = NULL;
+  SieveAction *ba;
+
+  a->arg = g_strdup ("I'm \"away\" }\n.hidden dot\n.");
+  g_ptr_array_add (r->actions, a);
+  g_ptr_array_add (set->rules, r);
+
+  out = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (out,
+    "\tvacation text:\n"
+    "I'm \"away\" }\n"
+    "..hidden dot\n"
+    "..\n"
+    ".\n"
+    ";\n"));
+  g_assert_nonnull (strstr (out, "require [\"vacation\"];"));
+
+  back = sieve_rule_set_parse (out, NULL);
+  g_assert_nonnull (back);
+  ba = g_ptr_array_index (((SieveRule *) g_ptr_array_index (back->rules, 0))->actions, 0);
+  g_assert_cmpint (ba->type, ==, SIEVE_ACTION_VACATION);
+  g_assert_cmpstr (ba->arg, ==, "I'm \"away\" }\n.hidden dot\n.\n");
+  g_assert_cmpuint (ba->days, ==, 0);
+  g_assert_null (ba->subject);
+  assert_stable_roundtrip (set);
+  assert_stable_roundtrip (back);
+}
+
+/* Extensions the new actions need are recomputed: dropped from the
+ * require line once no structured rule uses them anymore. */
+static void
+test_new_action_requires_recomputed (void)
+{
+  const gchar *in =
+    "require [\"copy\", \"reject\", \"vacation\"];\n"
+    "# rule:[Plain]\n"
+    "if true { keep; }\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (in, NULL);
+  g_autofree gchar *out = sieve_rule_set_to_script (set);
+
+  g_assert_null (strstr (out, "require"));
+}
+
+/* Opaque rules' text is scanned for the extensions it needs: managed
+ * extensions only it uses are kept, unused ones dropped (here "copy",
+ * after its last ":copy" went away) — but never added ("${f}" without
+ * "variables" stays a literal string). An opaque rule that doesn't
+ * parse cleanly keeps the whole original line, as nothing can be
+ * told. */
+static void
+test_opaque_rules_requires_scanned (void)
+{
+  const gchar *scanned =
+    "require [\"copy\", \"envelope\", \"fileinto\", \"imap4flags\", \"vacation\"];\n"
+    "# rule:[Plain]\n"
+    "if true { fileinto \"A\"; }\n"
+    "# rule:[Opaque]\n"
+    "if envelope :is \"from\" \"a@b\" { vacation :from \"me@b\" \"Away\"; addflag \"${f}\"; }\n";
+  const gchar *unparseable =
+    "require [\"copy\", \"fileinto\"];\n"
+    "# rule:[Plain]\n"
+    "if true { keep; }\n"
+    "if anyof (true,) { stop; }\n";
+  g_autoptr (SieveRuleSet) a = sieve_rule_set_parse (scanned, NULL);
+  g_autoptr (SieveRuleSet) b = sieve_rule_set_parse (unparseable, NULL);
+  g_autofree gchar *out_a = sieve_rule_set_to_script (a);
+  g_autofree gchar *out_b = sieve_rule_set_to_script (b);
+
+  g_assert_true (g_str_has_prefix (out_a,
+    "require [\"envelope\", \"fileinto\", \"imap4flags\", \"vacation\"];\n"));
+  g_assert_true (g_str_has_prefix (out_b, "require [\"copy\", \"fileinto\"];\n"));
+}
+
 int
 main (int argc, char **argv)
 {
@@ -1301,5 +1459,11 @@ main (int argc, char **argv)
   g_test_add_func ("/sieve-model/not-and-exists-editable", test_not_and_exists_editable);
   g_test_add_func ("/sieve-model/exists-ignores-values", test_exists_ignores_values);
   g_test_add_func ("/sieve-model/not-in-disabled-rule-and-unlock", test_not_in_disabled_rule_and_unlock);
+  g_test_add_func ("/sieve-model/new-actions-roundtrip", test_new_actions_roundtrip);
+  g_test_add_func ("/sieve-model/vacation-multiline-message", test_vacation_multiline_message);
+  g_test_add_func ("/sieve-model/new-action-requires-recomputed",
+                   test_new_action_requires_recomputed);
+  g_test_add_func ("/sieve-model/opaque-rules-requires-scanned",
+                   test_opaque_rules_requires_scanned);
   return g_test_run ();
 }

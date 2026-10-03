@@ -12,7 +12,9 @@
  *   - conditions: From / To / Cc / Subject / generic header / size /
  *     body, with :contains / :is / :matches / :regex (and :over / :under
  *     for size, "exists" for headers), each optionally negated ("not")
- *   - actions: keep / discard / fileinto / redirect / addflag / stop
+ *   - actions: keep / discard / fileinto / redirect (both optionally
+ *     with :copy) / addflag / setflag / removeflag / reject / vacation
+ *     (:days, :subject) / stop
  *
  * This module is pure GLib: no dependency on GTK or Evolution, so it
  * is testable on its own (see tests/test-sieve-model.c).
@@ -111,12 +113,23 @@ typedef enum {
   SIEVE_ACTION_FILEINTO,  /* arg = folder name */
   SIEVE_ACTION_REDIRECT,  /* arg = email address */
   SIEVE_ACTION_ADDFLAG,   /* arg = IMAP flag, e.g. "\Seen" */
-  SIEVE_ACTION_STOP
+  SIEVE_ACTION_STOP,
+  SIEVE_ACTION_SETFLAG,    /* arg = IMAP flag; replaces the current flags */
+  SIEVE_ACTION_REMOVEFLAG, /* arg = IMAP flag */
+  SIEVE_ACTION_REJECT,     /* arg = reason sent back (may be multi-line) */
+  SIEVE_ACTION_VACATION    /* arg = reply text (may be multi-line); see
+                              `days` / `subject` */
 } SieveActionType;
 
 typedef struct {
   SieveActionType type;
-  gchar          *arg;    /* NULL for keep / discard / stop */
+  gchar          *arg;     /* NULL for keep / discard / stop */
+  gboolean        copy;    /* fileinto / redirect only: ":copy" (the
+                              implicit keep is not cancelled) */
+  guint           days;    /* vacation only: ":days", 0 = omitted
+                              (server default) */
+  gchar          *subject; /* vacation only: ":subject", NULL or "" =
+                              omitted */
 } SieveAction;
 
 typedef enum {
@@ -150,12 +163,15 @@ typedef struct {
   GPtrArray *rules;          /* elements: SieveRule* */
   GPtrArray *extra_requires; /* extension names (gchar*) from the original
                                 "require" line, NULL if there was none.
-                                On serialization, all of them are kept
-                                while opaque rules remain; otherwise only
-                                those the model can't infer from the
-                                structured rules itself (i.e. anything
-                                but body/encoded-character/fileinto/
-                                imap4flags/regex/variables). */
+                                On serialization, only those the model
+                                can't infer itself — from the structured
+                                rules, and from the opaque rules' text,
+                                parsed for that purpose — are kept (i.e.
+                                anything
+                                but body/copy/encoded-character/
+                                fileinto/imap4flags/regex/reject/
+                                vacation/variables); all of them if an
+                                opaque rule's text doesn't parse. */
 } SieveRuleSet;
 
 SieveCondition *sieve_condition_new  (void);

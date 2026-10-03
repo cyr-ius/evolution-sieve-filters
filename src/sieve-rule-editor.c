@@ -128,11 +128,28 @@ row_ctx_new (SieveRuleEditor *self, gpointer item)
 }
 
 static gboolean
+action_is_flag (SieveActionType type)
+{
+  return type == SIEVE_ACTION_ADDFLAG ||
+         type == SIEVE_ACTION_SETFLAG ||
+         type == SIEVE_ACTION_REMOVEFLAG;
+}
+
+/* Single-line argument, in the row itself. */
+static gboolean
 action_takes_arg (SieveActionType type)
 {
   return type == SIEVE_ACTION_FILEINTO ||
          type == SIEVE_ACTION_REDIRECT ||
-         type == SIEVE_ACTION_ADDFLAG;
+         action_is_flag (type);
+}
+
+/* reject / vacation: a multi-line message, edited in a text view under
+ * the row instead. */
+static gboolean
+action_takes_message (SieveActionType type)
+{
+  return type == SIEVE_ACTION_REJECT || type == SIEVE_ACTION_VACATION;
 }
 
 /* ---- "Condition" row ------------------------------------------------- */
@@ -437,6 +454,10 @@ on_action_type_changed (GtkComboBox *combo, RowCtx *ctx)
   idx = gtk_combo_box_get_active (combo);
   if (idx < 0)
     return;
+  /* A folder / address / flag makes no sense as a reply message, nor
+   * the other way around: start from an empty argument then. */
+  if (action_takes_message (a->type) != action_takes_message ((SieveActionType) idx))
+    g_clear_pointer (&a->arg, g_free);
   a->type = (SieveActionType) idx;
   /* rebuild_detail() destroys this row, freeing `ctx` (attached via
    * g_object_set_data_full). We cache `self` beforehand: touching it
@@ -458,6 +479,145 @@ on_action_arg_changed (GtkEntry *entry, RowCtx *ctx)
 }
 
 static void
+on_action_copy_toggled (GtkToggleButton *button, RowCtx *ctx)
+{
+  SieveAction *a = ctx->item;
+
+  if (ctx->self->updating)
+    return;
+  a->copy = gtk_toggle_button_get_active (button);
+  emit_changed (ctx->self);
+}
+
+static void
+on_action_message_changed (GtkTextBuffer *buffer, RowCtx *ctx)
+{
+  SieveAction *a = ctx->item;
+  GtkTextIter start, end;
+
+  if (ctx->self->updating)
+    return;
+  gtk_text_buffer_get_bounds (buffer, &start, &end);
+  g_free (a->arg);
+  a->arg = gtk_text_buffer_get_text (buffer, &start, &end, FALSE);
+  emit_changed (ctx->self);
+}
+
+static void
+on_action_days_changed (GtkSpinButton *spin, RowCtx *ctx)
+{
+  SieveAction *a = ctx->item;
+
+  if (ctx->self->updating)
+    return;
+  a->days = (guint) gtk_spin_button_get_value_as_int (spin);
+  emit_changed (ctx->self);
+}
+
+static void
+on_action_subject_changed (GtkEntry *entry, RowCtx *ctx)
+{
+  SieveAction *a = ctx->item;
+
+  if (ctx->self->updating)
+    return;
+  g_free (a->subject);
+  a->subject = g_strdup (gtk_entry_get_text (entry));
+  emit_changed (ctx->self);
+}
+
+/* "days" spin button: 0 (":days" omitted) reads "server default". */
+static gboolean
+on_days_output (GtkSpinButton *spin, gpointer user_data)
+{
+  (void) user_data;
+  if (gtk_spin_button_get_value_as_int (spin) != 0)
+    return FALSE;
+  gtk_entry_set_text (GTK_ENTRY (spin), _("server default"));
+  return TRUE;
+}
+
+static gint
+on_days_input (GtkSpinButton *spin, gdouble *new_value, gpointer user_data)
+{
+  (void) user_data;
+  if (g_strcmp0 (gtk_entry_get_text (GTK_ENTRY (spin)), _("server default")) != 0)
+    return FALSE;
+  *new_value = 0;
+  return TRUE;
+}
+
+/* Multi-line message editor (reject / vacation), connected to `ctx`. */
+static GtkWidget *
+make_message_view (const gchar *text, RowCtx *ctx)
+{
+  GtkWidget *scroll = gtk_scrolled_window_new (NULL, NULL);
+  GtkWidget *view = gtk_text_view_new ();
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (view));
+
+  gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (view), GTK_WRAP_WORD_CHAR);
+  gtk_text_buffer_set_text (buffer, text != NULL ? text : "", -1);
+  gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (scroll), GTK_SHADOW_IN);
+  gtk_scrolled_window_set_min_content_height (GTK_SCROLLED_WINDOW (scroll), 80);
+  gtk_widget_set_hexpand (scroll, TRUE);
+  gtk_container_add (GTK_CONTAINER (scroll), view);
+  g_signal_connect (buffer, "changed", G_CALLBACK (on_action_message_changed), ctx);
+  return scroll;
+}
+
+/* Form under a reject / vacation row: the message, plus vacation's
+ * ":days" and ":subject". */
+static GtkWidget *
+build_message_form (SieveAction *a, RowCtx *ctx)
+{
+  GtkWidget *grid = gtk_grid_new ();
+  GtkWidget *label;
+  gint row = 0;
+
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 4);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 6);
+  gtk_widget_set_margin_start (grid, 24);
+
+  if (a->type == SIEVE_ACTION_VACATION) {
+    GtkWidget *days, *subject;
+
+    label = gtk_label_new (_("Days between replies:"));
+    gtk_widget_set_halign (label, GTK_ALIGN_END);
+    days = gtk_spin_button_new_with_range (0, 365, 1);
+    gtk_widget_set_tooltip_text (days,
+      _("How long to wait before replying again to the same sender. "
+        "\"server default\" leaves it to the server (usually 7 days)."));
+    g_signal_connect (days, "output", G_CALLBACK (on_days_output), NULL);
+    g_signal_connect (days, "input", G_CALLBACK (on_days_input), NULL);
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (days), a->days);
+    /* set_value() doesn't re-render a value already at 0 */
+    on_days_output (GTK_SPIN_BUTTON (days), NULL);
+    gtk_widget_set_halign (days, GTK_ALIGN_START);
+    g_signal_connect (days, "value-changed", G_CALLBACK (on_action_days_changed), ctx);
+    gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), days, 1, row++, 1, 1);
+
+    label = gtk_label_new (_("Subject:"));
+    gtk_widget_set_halign (label, GTK_ALIGN_END);
+    subject = gtk_entry_new ();
+    gtk_entry_set_placeholder_text (GTK_ENTRY (subject), _("automatic"));
+    if (a->subject != NULL)
+      gtk_entry_set_text (GTK_ENTRY (subject), a->subject);
+    gtk_widget_set_hexpand (subject, TRUE);
+    g_signal_connect (subject, "changed", G_CALLBACK (on_action_subject_changed), ctx);
+    gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), subject, 1, row++, 1, 1);
+  }
+
+  label = gtk_label_new (_("Message:"));
+  gtk_widget_set_halign (label, GTK_ALIGN_END);
+  gtk_widget_set_valign (label, GTK_ALIGN_START);
+  gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
+  gtk_grid_attach (GTK_GRID (grid), make_message_view (a->arg, ctx), 1, row, 1, 1);
+  return grid;
+}
+
+static void
 on_action_remove (GtkButton *button, RowCtx *ctx)
 {
   SieveRuleEditor *self = ctx->self;
@@ -474,10 +634,11 @@ on_action_remove (GtkButton *button, RowCtx *ctx)
 static GtkWidget *
 build_action_row (SieveRuleEditor *self, SieveAction *a)
 {
+  GtkWidget *outer = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
   GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
   RowCtx *ctx = row_ctx_new (self, a);
   GtkWidget *type_combo, *arg_widget, *arg_entry, *remove_btn;
-  gboolean is_flag = (a->type == SIEVE_ACTION_ADDFLAG);
+  gboolean is_flag = action_is_flag (a->type);
   gboolean is_fileinto_list = (a->type == SIEVE_ACTION_FILEINTO &&
                                self->mailboxes != NULL &&
                                self->mailboxes[0] != NULL);
@@ -485,17 +646,22 @@ build_action_row (SieveRuleEditor *self, SieveAction *a)
   const gchar * const action_labels[] = {
     _("Keep"), _("Discard"), _("File into"),
     _("Redirect to"), _("Add IMAP flag"),
-    _("Stop processing"), NULL
+    _("Stop processing"), _("Set IMAP flags (replace)"),
+    _("Remove IMAP flag"), _("Reject with a message"),
+    _("Vacation auto-reply"), NULL
   };
 
-  g_object_set_data_full (G_OBJECT (row), "ctx", ctx, g_free);
+  G_STATIC_ASSERT (G_N_ELEMENTS (action_labels) == SIEVE_ACTION_VACATION + 2);
+  g_object_set_data_full (G_OBJECT (outer), "ctx", ctx, g_free);
 
   type_combo = make_combo (action_labels, (gint) a->type);
 
   switch (a->type) {
     case SIEVE_ACTION_FILEINTO: placeholder = "INBOX/Folder"; break;
     case SIEVE_ACTION_REDIRECT: placeholder = "address@example.tld"; break;
-    case SIEVE_ACTION_ADDFLAG:  placeholder = "\\Seen"; break;
+    case SIEVE_ACTION_ADDFLAG:
+    case SIEVE_ACTION_SETFLAG:
+    case SIEVE_ACTION_REMOVEFLAG: placeholder = "\\Seen"; break;
     default: break;
   }
 
@@ -525,13 +691,30 @@ build_action_row (SieveRuleEditor *self, SieveAction *a)
 
   gtk_box_pack_start (GTK_BOX (row), type_combo, FALSE, FALSE, 0);
   gtk_box_pack_start (GTK_BOX (row), arg_widget, TRUE, TRUE, 0);
+  if (a->type == SIEVE_ACTION_FILEINTO || a->type == SIEVE_ACTION_REDIRECT) {
+    GtkWidget *copy = gtk_check_button_new_with_label (_("Keep a copy"));
+
+    gtk_widget_set_tooltip_text (copy,
+      _("Also deliver the message normally, as if this action weren't "
+        "there (\":copy\")."));
+    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (copy), a->copy);
+    g_signal_connect (copy, "toggled", G_CALLBACK (on_action_copy_toggled), ctx);
+    gtk_box_pack_start (GTK_BOX (row), copy, FALSE, FALSE, 0);
+  } else if (action_takes_message (a->type)) {
+    /* the row's own entry stays hidden: an empty spacer keeps the
+     * remove button on the right */
+    gtk_box_pack_start (GTK_BOX (row), gtk_label_new (NULL), TRUE, TRUE, 0);
+  }
   gtk_box_pack_start (GTK_BOX (row), remove_btn, FALSE, FALSE, 0);
 
   g_signal_connect (type_combo, "changed", G_CALLBACK (on_action_type_changed), ctx);
   g_signal_connect (arg_entry, "changed", G_CALLBACK (on_action_arg_changed), ctx);
   g_signal_connect (remove_btn, "clicked", G_CALLBACK (on_action_remove), ctx);
 
-  return row;
+  gtk_box_pack_start (GTK_BOX (outer), row, FALSE, FALSE, 0);
+  if (action_takes_message (a->type))
+    gtk_box_pack_start (GTK_BOX (outer), build_message_form (a, ctx), FALSE, FALSE, 0);
+  return outer;
 }
 
 /* ---- Name / mode / additions ------------------------------------------------- */
