@@ -388,41 +388,32 @@ msgmerge --update po/fr.po po/evolution-sieve-filters.pot
 (`po/fr/LC_MESSAGES/evolution-sieve-filters.mo`). Syntax check:
 `msgfmt --check --statistics po/fr.po`.
 
-## To do (detailed in README.md "Known limitations")
+## Visual editor (`sieve-model` / `sieve-rule-editor`)
 
-Reading account settings (`CamelSettings`/`ESource` — the ManageSieve
-connection settings already have a dedicated page in the account editor,
-`sieve-config-page`; still missing: fine-grained `CamelSettings` reading,
-e.g. IMAP security → pre-check "implicit TLS") · SCRAM-*-PLUS (TLS
-channel binding) and GS2-KRB5 · hardening the response parser · visual
-editor for conditions/actions: **basics in place**
-(`sieve-model` + `sieve-rule-editor`). Constructs that can't be
-represented (hand-written scripts, Nextcloud Mail / Roundcube blocks,
-`vacation`…) are now **kept verbatim** as "opaque" rules
-(`SieveRule.opaque` / `.raw`): the visual editor shows them locked
-(padlock, read-only), only the plain text tab can still edit them.
-Per-rule enable/disable is supported (`SieveRule.enabled`): a disabled
-rule is serialized as `if false # <mode>(<conditions>)` — the same
-convention Roundcube's managesieve plugin uses — so the original test
-survives re-enabling; a trailing comment that doesn't parse as a
-recognizable test falls back to opaque rather than being silently
-dropped. An opaque rule can be reinterpreted on demand: `sieve_rule_unlock()`
-retries the same `if allof/anyof(...) { actions }` grammar as
-`sieve_rule_set_parse()`, but **without** requiring a leading
-`# rule:[name]` marker — it's triggered per rule (the "Unlock" button
-under the padlock view in `sieve-rule-editor.c`), typically after the
-user has fixed up the text in the "Raw text" tab, so relaxing the
-marker there doesn't risk the tolerant whole-script parse silently
-reinterpreting a foreign block (Nextcloud Mail, Roundcube) elsewhere in
-the script. On failure the rule is left untouched (still opaque, exact
-text preserved) and the reason is shown inline. Rule order can be
-changed from the visual editor (up/down buttons in the rule list's
-toolbar, next to +/-/reload) — order matters in Sieve (top-to-bottom
-evaluation, `stop` short-circuits the rest), including for opaque
-rules (only their position moves, not their content). Remaining: a
-real RFC 5228 parser to make more constructs (`not`, `exists`, nested
-`anyof`, `vacation`…) representable at all, `variables` · network
-cancellation on the UI side.
+- Constructs that can't be represented (hand-written scripts, Nextcloud
+  Mail / Roundcube blocks, `vacation`…) are **kept verbatim** as
+  "opaque" rules (`SieveRule.opaque` / `.raw`): the visual editor shows
+  them locked (padlock, read-only), only the plain text tab can still
+  edit them.
+- Per-rule enable/disable (`SieveRule.enabled`): a disabled rule is
+  serialized as `if false # <mode>(<conditions>)` — the same convention
+  Roundcube's managesieve plugin uses — so the original test survives
+  re-enabling; a trailing comment that doesn't parse as a recognizable
+  test falls back to opaque rather than being silently dropped.
+- Unlocking an opaque rule on demand: `sieve_rule_unlock()` retries
+  the same `if allof/anyof(...) { actions }` grammar as
+  `sieve_rule_set_parse()`, but **without** requiring a leading
+  `# rule:[name]` marker — it's triggered per rule (the "Unlock" button
+  under the padlock view in `sieve-rule-editor.c`), typically after the
+  user has fixed up the text in the "Raw text" tab, so relaxing the
+  marker there doesn't risk the tolerant whole-script parse silently
+  reinterpreting a foreign block (Nextcloud Mail, Roundcube) elsewhere
+  in the script. On failure the rule is left untouched (still opaque,
+  exact text preserved) and the reason is shown inline.
+- Rule order can be changed (up/down buttons in the rule list's
+  toolbar, next to +/-/reload) — order matters in Sieve (top-to-bottom
+  evaluation, `stop` short-circuits the rest), including for opaque
+  rules (only their position moves, not their content).
 
 `sieve-model` / `sieve-rule-editor` are independent of Evolution — keep
 it that way. The editor is therefore unaware of where the folders come
@@ -435,3 +426,23 @@ editable dropdown. If you touch the (de)serializer, rerun `meson test`:
 stable to the character, including for opaque rules (text copied
 verbatim from another tool), and that only a lexically broken script
 (unclosed brace / string) still makes `sieve_rule_set_parse()` fail.
+
+## To do (detailed in README.md "Known limitations")
+
+- **Fine-grained `CamelSettings` reading**: the ManageSieve connection
+  settings have their own page (`sieve-config-page`), pre-filled only
+  with the account's host/user (`ESourceAuthentication`). Still missing:
+  e.g. IMAP security → pre-check "implicit TLS". (`CamelNetworkSettings`
+  is currently read only for the folder separator probe, issue #3.)
+- **SCRAM-\*-PLUS (TLS channel binding) and GS2-KRB5** — `sieve-sasl.c`
+  still sends a `n,` gs2-header (no channel binding).
+- **Hardening the response parser**: `{N}` literals are now bounded
+  (`SIEVE_MANAGESIEVE_MAX_LITERAL_SIZE`, 16 MiB, overflow-checked —
+  reachable pre-TLS in STARTTLS mode), but response *lines* are still
+  read without a length cap (`g_data_input_stream_read_line_utf8()` in
+  `read_line()`).
+- **A real RFC 5228 parser**, to make more constructs (`not`, `exists`,
+  nested `anyof`, `vacation`…) representable at all in the visual
+  editor, plus the `variables` actions (`set`…). The `variables`
+  *require* itself is already handled: kept through the visual editor
+  and recomputed from `${...}` references (issue #4).
