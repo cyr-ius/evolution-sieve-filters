@@ -482,8 +482,11 @@ verbatim from another tool), and that only a lexically broken script
   editor, plus the `variables` actions (`set`…). The parsing side is
   done: `src/sieve-ast.[ch]` (full RFC 5228 grammar) and
   `sieve_rule_set_parse()` / `sieve_rule_unlock()` are built on it.
-  What's left is the model + UI: `not`/`exists` (a negation flag on
-  `SieveCondition`, a new `SieveMatch`), more actions (`vacation`,
+  `not` (single level, `SieveCondition.negate`) and `exists`
+  (`SIEVE_MATCH_EXISTS`, one header name) are editable too: offered as
+  "does not contain" / "exists" / "does not exist"… entries of the
+  condition's match combo (`text_match_choices` in
+  `sieve-rule-editor.c`). What's left is more actions (`vacation`,
   `reject`, `setflag`, `:copy`/`:flags`, `address`/`envelope` tests —
   all currently left opaque rather than approximated, see
   `/sieve-model/lossy-constructs-stay-opaque`), then nested

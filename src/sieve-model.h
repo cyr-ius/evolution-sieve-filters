@@ -11,7 +11,7 @@
  *     of actions (SieveAction)
  *   - conditions: From / To / Cc / Subject / generic header / size /
  *     body, with :contains / :is / :matches / :regex (and :over / :under
- *     for size)
+ *     for size, "exists" for headers), each optionally negated ("not")
  *   - actions: keep / discard / fileinto / redirect / addflag / stop
  *
  * This module is pure GLib: no dependency on GTK or Evolution, so it
@@ -82,7 +82,9 @@ typedef enum {
   SIEVE_MATCH_MATCHES,
   SIEVE_MATCH_REGEX,  /* requires the "regex" extension */
   SIEVE_MATCH_OVER,   /* SIEVE_FIELD_SIZE only */
-  SIEVE_MATCH_UNDER   /* SIEVE_FIELD_SIZE only */
+  SIEVE_MATCH_UNDER,  /* SIEVE_FIELD_SIZE only */
+  SIEVE_MATCH_EXISTS  /* header fields only (not size / body): the
+                         "exists" test; `values` is ignored */
 } SieveMatch;
 
 typedef struct {
@@ -99,6 +101,8 @@ typedef struct {
                               string. Use sieve_condition_get_value() /
                               sieve_condition_set_value() for the common
                               single-value case. */
+  gboolean   negate;      /* TRUE: the test is wrapped in "not" ("does
+                              not contain", "does not exist"...) */
 } SieveCondition;
 
 typedef enum {

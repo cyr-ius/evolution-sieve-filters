@@ -12,7 +12,8 @@ filters.
 
 - **Visual editor** for rules, in the style of Evolution's "Message
   Filters": a list of rules, criteria (sender, recipient, subject,
-  header, size, body…) and actions (file into, forward, mark, delete,
+  header, size, body…, including negated ones — "does not contain" — and
+  "header exists / does not exist") and actions (file into, forward, mark, delete,
   stop processing…) built without writing a script by hand. Rules can
   be individually enabled/disabled without deleting them.
 - **Plain text editor** as a fallback, for anything the visual editor

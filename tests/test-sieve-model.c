@@ -181,7 +181,7 @@ test_parse_single_unwrapped_test (void)
   g_assert_cmpint (((SieveAction *) g_ptr_array_index (r->actions, 0))->type, ==, SIEVE_ACTION_KEEP);
 }
 
-/* An `if` with no marker, with a test that cannot be represented (`not`):
+/* An `if` with no marker, with a test that cannot be represented (`address`):
  * kept verbatim in an opaque rule, and the leading `require` is preserved
  * (extensions re-injected on serialization). */
 static void
@@ -189,7 +189,7 @@ test_handwritten_becomes_opaque (void)
 {
   const gchar *hand =
     "require \"fileinto\";\n"
-    "if not header :contains \"subject\" \"x\" {\n"
+    "if address :is \"from\" \"x\" {\n"
     "  fileinto \"Other\";\n"
     "}\n";
   g_autoptr (GError) error = NULL;
@@ -205,12 +205,12 @@ test_handwritten_becomes_opaque (void)
   r = g_ptr_array_index (set->rules, 0);
   g_assert_true (r->opaque);
   g_assert_nonnull (r->raw);
-  g_assert_nonnull (strstr (r->raw, "if not header :contains \"subject\" \"x\""));
+  g_assert_nonnull (strstr (r->raw, "if address :is \"from\" \"x\""));
 
   /* `fileinto` re-declared on serialization thanks to the leading require. */
   script = sieve_rule_set_to_script (set);
   g_assert_nonnull (strstr (script, "require [\"fileinto\"];"));
-  g_assert_nonnull (strstr (script, "if not header :contains \"subject\" \"x\""));
+  g_assert_nonnull (strstr (script, "if address :is \"from\" \"x\""));
 
   /* Re-serialization stable down to the last character. */
   {
@@ -607,7 +607,7 @@ test_disabled_rule_without_comment (void)
 }
 
 /* A disabled rule whose trailing comment is NOT a recognizable test
- * (e.g. it uses "not", which the visual editor doesn't support): rather
+ * (e.g. it uses "address", which the visual editor doesn't support): rather
  * than silently discard that comment on the first save — which would
  * permanently lose the original, disabled test — the whole rule falls
  * back to opaque, verbatim. */
@@ -616,7 +616,7 @@ test_disabled_rule_unparseable_comment_becomes_opaque (void)
 {
   const gchar *script =
     "# rule:[Weird]\n"
-    "if false # not header :contains \"subject\" \"x\"\n"
+    "if false # address :is \"from\" \"x\"\n"
     "{\n"
     "\tstop;\n"
     "}\n";
@@ -626,7 +626,7 @@ test_disabled_rule_unparseable_comment_becomes_opaque (void)
   g_assert_nonnull (set);
   r = g_ptr_array_index (set->rules, 0);
   g_assert_true (r->opaque);
-  g_assert_nonnull (strstr (r->raw, "if false # not header :contains \"subject\" \"x\""));
+  g_assert_nonnull (strstr (r->raw, "if false # address :is \"from\" \"x\""));
 }
 
 /* An unmarked, but otherwise fully representable, hand-written `if` is
@@ -697,14 +697,14 @@ test_unlock_after_fixing_raw_text (void)
   sieve_rule_free (unlocked);
 }
 
-/* Still outside the visual editor's scope (`not`): sieve_rule_unlock()
+/* Still outside the visual editor's scope (`address`): sieve_rule_unlock()
  * fails, and the caller keeps the original opaque rule as-is. */
 static void
 test_unlock_still_unsupported_fails (void)
 {
   SieveRule *opaque = sieve_rule_new_opaque (
     "(imported rule)",
-    "if not header :contains \"subject\" \"x\" {\n"
+    "if address :is \"from\" \"x\" {\n"
     "  fileinto \"Other\";\n"
     "}\n");
   g_autoptr (GError) error = NULL;
@@ -1081,6 +1081,13 @@ test_lossy_constructs_stay_opaque (void)
     "if size :foo 1M { keep; }",
     /* anyof (true, X) is always true, unlike X */
     "if anyof (true, header :is \"subject\" \"x\") { keep; }",
+    /* "not not X" isn't silently simplified to "X" */
+    "if not not header :is \"subject\" \"x\" { keep; }",
+    /* not of something other than a single representable test */
+    "if not true { keep; }",
+    "if not anyof (header :is \"subject\" \"x\", header :is \"subject\" \"y\") { keep; }",
+    /* several names: "all of them exist" */
+    "if exists [\"X-A\", \"X-B\"] { keep; }",
   };
 
   for (guint i = 0; i < G_N_ELEMENTS (tests); i++) {
@@ -1126,6 +1133,123 @@ test_representable_constructs_stay_structured (void)
     if (r->opaque)
       g_error ("should have been structured: %s", tests[i]);
   }
+}
+
+/* "not" and "exists" (lot 3): read back as editable conditions, and the
+ * model -> script -> model round trip is stable. */
+static void
+test_not_and_exists_editable (void)
+{
+  const gchar *script =
+    "# rule:[Negations]\n"
+    "if allof (not header :contains \"subject\" \"spam\", exists \"X-Spam\", "
+    "not exists \"List-Id\", not size :over 1M, not body :text :is \"x\")\n"
+    "{\n"
+    "\tkeep;\n"
+    "}\n";
+  g_autoptr (GError) error = NULL;
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, &error);
+  g_autofree gchar *out = NULL;
+  SieveRule *r;
+  SieveCondition *c;
+
+  g_assert_no_error (error);
+  g_assert_cmpuint (set->rules->len, ==, 1);
+  r = g_ptr_array_index (set->rules, 0);
+  g_assert_false (r->opaque);
+  g_assert_cmpuint (r->conditions->len, ==, 5);
+
+  c = g_ptr_array_index (r->conditions, 0);
+  g_assert_true (c->negate);
+  g_assert_cmpint (c->field, ==, SIEVE_FIELD_SUBJECT);
+  g_assert_cmpint (c->match, ==, SIEVE_MATCH_CONTAINS);
+  g_assert_cmpstr (sieve_condition_get_value (c), ==, "spam");
+
+  c = g_ptr_array_index (r->conditions, 1);
+  g_assert_false (c->negate);
+  g_assert_cmpint (c->field, ==, SIEVE_FIELD_HEADER);
+  g_assert_cmpstr (c->header_name, ==, "X-Spam");
+  g_assert_cmpint (c->match, ==, SIEVE_MATCH_EXISTS);
+
+  c = g_ptr_array_index (r->conditions, 2);
+  g_assert_true (c->negate);
+  g_assert_cmpint (c->match, ==, SIEVE_MATCH_EXISTS);
+  g_assert_cmpstr (c->header_name, ==, "List-Id");
+
+  c = g_ptr_array_index (r->conditions, 3);
+  g_assert_true (c->negate);
+  g_assert_cmpint (c->field, ==, SIEVE_FIELD_SIZE);
+  g_assert_cmpint (c->match, ==, SIEVE_MATCH_OVER);
+
+  c = g_ptr_array_index (r->conditions, 4);
+  g_assert_true (c->negate);
+  g_assert_cmpint (c->field, ==, SIEVE_FIELD_BODY);
+
+  out = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (out, "not header :contains \"subject\" \"spam\""));
+  g_assert_nonnull (strstr (out, ", exists \"X-Spam\""));
+  g_assert_nonnull (strstr (out, "not exists \"List-Id\""));
+  g_assert_nonnull (strstr (out, "not size :over 1M"));
+  g_assert_nonnull (strstr (out, "not body :text :is \"x\""));
+  assert_stable_roundtrip (set);
+}
+
+/* Built from the model side: an "exists" condition never serializes its
+ * (leftover) values, nor infers requires from them. */
+static void
+test_exists_ignores_values (void)
+{
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_new ();
+  SieveRule *r = sieve_rule_new ("Exists");
+  SieveCondition *c = sieve_condition_new ();
+  g_autofree gchar *out = NULL;
+
+  c->field = SIEVE_FIELD_CC;
+  c->match = SIEVE_MATCH_EXISTS;
+  sieve_condition_set_value (c, "${leftover}");
+  g_ptr_array_add (r->conditions, c);
+  g_ptr_array_add (r->actions, sieve_action_new (SIEVE_ACTION_KEEP));
+  g_ptr_array_add (set->rules, r);
+
+  out = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (out, "if allof (exists \"cc\")"));
+  g_assert_null (strstr (out, "leftover"));
+  g_assert_null (strstr (out, "variables"));
+}
+
+/* A disabled rule keeps a negated condition through its trailing
+ * comment, and sieve_rule_unlock() understands "not" too. */
+static void
+test_not_in_disabled_rule_and_unlock (void)
+{
+  const gchar *script =
+    "# rule:[Off]\n"
+    "if false # anyof (not exists \"X-Spam\", not header :is \"from\" \"a@b\")\n"
+    "{\n"
+    "\tstop;\n"
+    "}\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+  SieveRule *r = g_ptr_array_index (set->rules, 0);
+  SieveRule *opaque = sieve_rule_new_opaque (
+    "(imported rule)",
+    "if not header :contains \"subject\" \"x\" {\n  stop;\n}\n");
+  g_autoptr (GError) error = NULL;
+  SieveRule *unlocked;
+
+  g_assert_false (r->opaque);
+  g_assert_false (r->enabled);
+  g_assert_cmpint (r->mode, ==, SIEVE_MATCH_MODE_ANY);
+  g_assert_cmpuint (r->conditions->len, ==, 2);
+  g_assert_true (((SieveCondition *) g_ptr_array_index (r->conditions, 0))->negate);
+  g_assert_true (((SieveCondition *) g_ptr_array_index (r->conditions, 1))->negate);
+  assert_stable_roundtrip (set);
+
+  unlocked = sieve_rule_unlock (opaque, &error);
+  g_assert_no_error (error);
+  g_assert_true (((SieveCondition *) g_ptr_array_index (unlocked->conditions, 0))->negate);
+
+  sieve_rule_free (opaque);
+  sieve_rule_free (unlocked);
 }
 
 int
@@ -1174,5 +1298,8 @@ main (int argc, char **argv)
   g_test_add_func ("/sieve-model/lossy-constructs-stay-opaque", test_lossy_constructs_stay_opaque);
   g_test_add_func ("/sieve-model/representable-constructs-stay-structured",
                    test_representable_constructs_stay_structured);
+  g_test_add_func ("/sieve-model/not-and-exists-editable", test_not_and_exists_editable);
+  g_test_add_func ("/sieve-model/exists-ignores-values", test_exists_ignores_values);
+  g_test_add_func ("/sieve-model/not-in-disabled-rule-and-unlock", test_not_in_disabled_rule_and_unlock);
   return g_test_run ();
 }

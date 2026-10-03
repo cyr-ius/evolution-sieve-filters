@@ -137,6 +137,58 @@ action_takes_arg (SieveActionType type)
 
 /* ---- "Condition" row ------------------------------------------------- */
 
+/* Entries of the condition's "match" combo: each SieveMatch is offered
+ * both as is and negated ("contains" / "does not contain"...), the way
+ * Evolution's own filter editor does. The labels are built where used
+ * (gettext), aligned with these tables. */
+typedef struct {
+  SieveMatch match;
+  gboolean   negate;
+} MatchChoice;
+
+static const MatchChoice text_match_choices[] = {
+  { SIEVE_MATCH_CONTAINS, FALSE }, { SIEVE_MATCH_CONTAINS, TRUE },
+  { SIEVE_MATCH_IS,       FALSE }, { SIEVE_MATCH_IS,       TRUE },
+  { SIEVE_MATCH_MATCHES,  FALSE }, { SIEVE_MATCH_MATCHES,  TRUE },
+  { SIEVE_MATCH_REGEX,    FALSE }, { SIEVE_MATCH_REGEX,    TRUE },
+  /* header fields only: left out of the combo for the message body */
+  { SIEVE_MATCH_EXISTS,   FALSE }, { SIEVE_MATCH_EXISTS,   TRUE },
+};
+#define N_BODY_MATCH_CHOICES 8
+
+static const MatchChoice size_match_choices[] = {
+  { SIEVE_MATCH_OVER,  FALSE }, { SIEVE_MATCH_UNDER, FALSE },
+  { SIEVE_MATCH_OVER,  TRUE  }, { SIEVE_MATCH_UNDER, TRUE  },
+};
+
+static guint
+n_match_choices (SieveField field)
+{
+  if (field == SIEVE_FIELD_SIZE)
+    return G_N_ELEMENTS (size_match_choices);
+  if (field == SIEVE_FIELD_BODY)
+    return N_BODY_MATCH_CHOICES;
+  return G_N_ELEMENTS (text_match_choices);
+}
+
+static const MatchChoice *
+match_choices (SieveField field)
+{
+  return (field == SIEVE_FIELD_SIZE) ? size_match_choices : text_match_choices;
+}
+
+/* Combo index of `c`'s current match/negation, 0 if not offered. */
+static gint
+match_choice_index (const SieveCondition *c)
+{
+  const MatchChoice *choices = match_choices (c->field);
+
+  for (guint i = 0; i < n_match_choices (c->field); i++)
+    if (choices[i].match == c->match && choices[i].negate == !!c->negate)
+      return (gint) i;
+  return 0;
+}
+
 /* Joins `values` (>= 1 entries) with ", " for display in the (single-
  * line) value entry. A literal "," or "\" within a value is escaped
  * ("\," / "\\") so it survives being typed back through
@@ -207,13 +259,17 @@ on_cond_field_changed (GtkComboBox *combo, RowCtx *ctx)
 
   c->field = (SieveField) idx;
   if (c->field == SIEVE_FIELD_SIZE) {
-    if (c->match != SIEVE_MATCH_OVER && c->match != SIEVE_MATCH_UNDER)
+    if (c->match != SIEVE_MATCH_OVER && c->match != SIEVE_MATCH_UNDER) {
       c->match = SIEVE_MATCH_OVER;
+      c->negate = FALSE;
+    }
     /* "size" never takes a list of values: collapse to the first one. */
     if (c->values->len > 1)
       sieve_condition_set_value (c, sieve_condition_get_value (c));
-  } else if (c->match == SIEVE_MATCH_OVER || c->match == SIEVE_MATCH_UNDER) {
+  } else if (c->match == SIEVE_MATCH_OVER || c->match == SIEVE_MATCH_UNDER ||
+             (c->field == SIEVE_FIELD_BODY && c->match == SIEVE_MATCH_EXISTS)) {
     c->match = SIEVE_MATCH_CONTAINS;
+    c->negate = FALSE;
   }
 
   rebuild_detail (self);
@@ -223,21 +279,28 @@ on_cond_field_changed (GtkComboBox *combo, RowCtx *ctx)
 static void
 on_cond_match_changed (GtkComboBox *combo, RowCtx *ctx)
 {
+  SieveRuleEditor *self = ctx->self;
   SieveCondition *c = ctx->item;
+  gboolean was_exists = (c->match == SIEVE_MATCH_EXISTS);
+  const MatchChoice *choice;
   gint idx;
 
-  if (ctx->self->updating)
+  if (self->updating)
     return;
   idx = gtk_combo_box_get_active (combo);
-  if (idx < 0)
+  if (idx < 0 || (guint) idx >= n_match_choices (c->field))
     return;
 
-  if (c->field == SIEVE_FIELD_SIZE)
-    c->match = (idx == 1) ? SIEVE_MATCH_UNDER : SIEVE_MATCH_OVER;
-  else
-    c->match = (SieveMatch) idx; /* 0..3 == CONTAINS / IS / MATCHES / REGEX */
+  choice = &match_choices (c->field)[idx];
+  c->match = choice->match;
+  c->negate = choice->negate;
 
-  emit_changed (ctx->self);
+  /* "exists" takes no value: the value entry is shown/hidden by
+   * rebuilding the row. That destroys this row, freeing `ctx` — `self`
+   * was cached beforehand (see on_action_type_changed()). */
+  if (was_exists != (c->match == SIEVE_MATCH_EXISTS))
+    rebuild_detail (self);
+  emit_changed (self);
 }
 
 static void
@@ -297,20 +360,28 @@ build_condition_row (SieveRuleEditor *self, SieveCondition *c)
     _("Sender (From)"), _("Recipient (To)"), _("Copy (Cc)"), _("Subject"),
     _("Header…"), _("Size"), _("Message body"), NULL
   };
-  const gchar * const text_match_labels[] = {
-    _("contains"), _("is exactly"), _("matches pattern"), _("matches regex"), NULL
+  /* Aligned with text_match_choices / size_match_choices. */
+  const gchar *text_match_labels[] = {
+    _("contains"), _("does not contain"),
+    _("is exactly"), _("is not"),
+    _("matches pattern"), _("does not match pattern"),
+    _("matches regex"), _("does not match regex"),
+    _("exists"), _("does not exist"), NULL
   };
   const gchar * const size_match_labels[] = {
-    _("is over"), _("is under"), NULL
+    _("is over"), _("is under"), _("is at most"), _("is at least"), NULL
   };
 
   g_object_set_data_full (G_OBJECT (row), "ctx", ctx, g_free);
 
   field_combo = make_combo (field_labels, (gint) c->field);
 
+  G_STATIC_ASSERT (G_N_ELEMENTS (text_match_labels) == G_N_ELEMENTS (text_match_choices) + 1);
+  G_STATIC_ASSERT (G_N_ELEMENTS (size_match_labels) == G_N_ELEMENTS (size_match_choices) + 1);
+  if (c->field == SIEVE_FIELD_BODY)
+    text_match_labels[N_BODY_MATCH_CHOICES] = NULL;
   match_combo = make_combo (is_size ? size_match_labels : text_match_labels,
-                            is_size ? (c->match == SIEVE_MATCH_UNDER ? 1 : 0)
-                                    : (gint) c->match);
+                            match_choice_index (c));
 
   header_entry = gtk_entry_new ();
   gtk_entry_set_placeholder_text (GTK_ENTRY (header_entry), "X-Header");
@@ -331,6 +402,8 @@ build_condition_row (SieveRuleEditor *self, SieveCondition *c)
     g_autofree gchar *joined = join_values_for_entry (c->values);
     gtk_entry_set_text (GTK_ENTRY (value_entry), joined);
   }
+  gtk_widget_set_no_show_all (value_entry, TRUE);
+  gtk_widget_set_visible (value_entry, c->match != SIEVE_MATCH_EXISTS);
 
   remove_btn = gtk_button_new_from_icon_name ("list-remove-symbolic", GTK_ICON_SIZE_BUTTON);
   gtk_widget_set_tooltip_text (remove_btn, _("Remove this condition"));

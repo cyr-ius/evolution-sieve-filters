@@ -192,6 +192,9 @@ append_values (GString *out, const GPtrArray *values)
 static void
 append_condition (GString *out, const SieveCondition *c)
 {
+  if (c->negate)
+    g_string_append (out, "not ");
+
   if (c->field == SIEVE_FIELD_SIZE) {
     const gchar *v = sieve_condition_get_value (c);
     g_string_append_printf (out, "size %s %s",
@@ -203,6 +206,12 @@ append_condition (GString *out, const SieveCondition *c)
   if (c->field == SIEVE_FIELD_BODY) {
     g_string_append_printf (out, "body :text %s ", match_tag (c->match));
     append_values (out, c->values);
+    return;
+  }
+
+  if (c->match == SIEVE_MATCH_EXISTS) {
+    g_string_append (out, "exists ");
+    append_quoted (out, field_header_name (c->field, c->header_name));
     return;
   }
 
@@ -305,6 +314,8 @@ collect_requires (const SieveRuleSet *set, GHashTable *req)
         g_hash_table_add (req, g_strdup ("regex"));
       if (c->field == SIEVE_FIELD_HEADER)
         collect_string_requires (c->header_name, req);
+      if (c->match == SIEVE_MATCH_EXISTS)
+        continue; /* values aren't serialized */
       for (guint k = 0; k < c->values->len; k++)
         collect_string_requires (g_ptr_array_index (c->values, k), req);
     }
@@ -531,8 +542,46 @@ condition_from_test (const SieveAstTest *t, GError **error)
   GPtrArray *vals;
   guint i;
 
+  /* "not <test>": a single level only — "not not X" is left
+   * unsupported rather than silently simplified to "X". */
+  if (g_strcmp0 (t->name, "not") == 0) {
+    const SieveAstTest *inner;
+
+    if (args->len != 0 || t->tests == NULL || t->test_list) {
+      unsupported (error, "expected a single test after \"not\"");
+      return NULL;
+    }
+    inner = g_ptr_array_index (t->tests, 0);
+    if (g_strcmp0 (inner->name, "not") == 0) {
+      unsupported (error, "\"not not\" is not supported by the visual editor");
+      return NULL;
+    }
+    c = condition_from_test (inner, error);
+    if (c != NULL)
+      c->negate = TRUE;
+    return c;
+  }
+
   if (t->tests != NULL)
     goto unknown_test;
+
+  /* "exists": a single header name. Several names mean "all of them
+   * exist", which a single condition can't represent. */
+  if (g_strcmp0 (t->name, "exists") == 0) {
+    const gchar *hdr;
+
+    if (args->len != 1) {
+      unsupported (error, "expected a header name after \"exists\"");
+      return NULL;
+    }
+    hdr = arg_single_string (arg_at (args, 0), error);
+    if (hdr == NULL)
+      return NULL;
+    c = sieve_condition_new ();
+    c->match = SIEVE_MATCH_EXISTS;
+    set_field_from_header (c, hdr);
+    return c;
+  }
 
   /* Only "header": "address" / "envelope" compare a parsed address (or
    * the SMTP envelope), not the raw header — mapping them onto a
