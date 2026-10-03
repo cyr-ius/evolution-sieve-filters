@@ -215,6 +215,23 @@ test_client_first_classification (void)
 }
 
 static void
+test_mechanism_for_account_method (void)
+{
+  /* Only GSSAPI is carried over from the IMAP account, as a static
+   * string from the known mechanisms table. */
+  g_assert_cmpstr (sieve_sasl_mechanism_for_account_method ("GSSAPI"), ==, "GSSAPI");
+  g_assert_cmpstr (sieve_sasl_mechanism_for_account_method ("gssapi"), ==, "GSSAPI");
+  g_assert_null (sieve_sasl_mechanism_for_account_method (NULL));
+  g_assert_null (sieve_sasl_mechanism_for_account_method (""));
+  g_assert_null (sieve_sasl_mechanism_for_account_method ("PLAIN"));
+  g_assert_null (sieve_sasl_mechanism_for_account_method ("LOGIN"));
+  g_assert_null (sieve_sasl_mechanism_for_account_method ("SCRAM-SHA-256"));
+  g_assert_null (sieve_sasl_mechanism_for_account_method ("XOAUTH2"));
+  g_assert_null (sieve_sasl_mechanism_for_account_method ("Google"));
+  g_assert_null (sieve_sasl_mechanism_for_account_method ("GSSAPI-X"));
+}
+
+static void
 test_known_mechanisms_listed (void)
 {
   const gchar * const *m = sieve_sasl_known_mechanisms ();
@@ -396,6 +413,7 @@ main (int argc, char **argv)
   g_test_add_func ("/sasl/select/exclude-everything", test_select_exclude_everything);
   g_test_add_func ("/sasl/introspect/client-first", test_client_first_classification);
   g_test_add_func ("/sasl/introspect/known-mechs", test_known_mechanisms_listed);
+  g_test_add_func ("/sasl/introspect/account-method", test_mechanism_for_account_method);
   g_test_add_func ("/sasl/step/plain", test_plain_initial_response);
   g_test_add_func ("/sasl/step/xoauth2", test_xoauth2_initial_response);
   g_test_add_func ("/sasl/step/oauthbearer", test_oauthbearer_initial_response);

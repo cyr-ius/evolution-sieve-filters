@@ -105,6 +105,23 @@ gchar *sieve_sasl_select_mechanism_excluding (const gchar                *server
  * sieve_sasl_step() handles both cases regardless. */
 gboolean sieve_sasl_mechanism_is_client_first (const gchar *mechanism);
 
+/* Mechanism to pre-select for ManageSieve, given the authentication
+ * method of the account's receiving (IMAP) server — Evolution's
+ * ESourceAuthentication "method", e.g. "PLAIN", "GSSAPI", "XOAUTH2",
+ * "Google"… (case-insensitive; NULL / "" tolerated).
+ *
+ * Deliberately narrow: only GSSAPI is carried over. A Kerberos account
+ * almost always uses Kerberos for ManageSieve too, and pre-selecting it
+ * spares the account editor's automatic type check (which would
+ * otherwise try password mechanisms first). Password mechanisms are
+ * NOT carried over (the IMAP choice says nothing about what the Sieve
+ * server offers — the type check decides), and OAuth2 is detected
+ * separately (sieve_account_source_uses_oauth2()).
+ *
+ * Returns: a static string from sieve_sasl_known_mechanisms() (do not
+ * free), or NULL when nothing should be pre-selected. */
+const gchar *sieve_sasl_mechanism_for_account_method (const gchar *method);
+
 typedef struct _SieveSasl SieveSasl;
 
 /* mechanism: case-insensitive; must appear in

@@ -9,7 +9,6 @@
 #include <gtk/gtk.h>
 #include <libedataserver/libedataserver.h>
 #include <libemail-engine/libemail-engine.h>   /* EMailSession */
-#include <camel/camel.h>                       /* CamelNetworkSettings */
 
 #include <e-util/e-util.h>                 /* EExtension */
 #include <mail/e-mail-config-notebook.h>
@@ -66,10 +65,9 @@ struct _SieveConfigPage {
   GtkScrolledWindow parent_instance;
 
   ESource         *account_source;  /* ref; its UID is the sieve-config key */
-  ESourceRegistry *registry;        /* ref; for OAuth2 detection */
-  EMailSession    *mail_session;    /* ref; the account's real IMAP host/port/
-                                    * security (CamelNetworkSettings), for
-                                    * "Detect automatically" (issue #3) */
+  ESourceRegistry *registry;        /* ref; for OAuth2 detection and the
+                                    * account password ("Detect
+                                    * Automatically") */
   GtkWidget *host_entry;
   GtkWidget *port_spin;
   GtkWidget *user_entry;
@@ -141,7 +139,6 @@ sieve_config_page_dispose (GObject *object)
 
   g_clear_object (&self->account_source);
   g_clear_object (&self->registry);
-  g_clear_object (&self->mail_session);
 
   G_OBJECT_CLASS (sieve_config_page_parent_class)->dispose (object);
 }
@@ -281,11 +278,82 @@ auth_type_combo_new (void)
   return combo;
 }
 
+/* --- The account's receiving (IMAP) server settings ------------------ *
+ *
+ * Read straight from the account ESource's "Authentication" and
+ * "Security" extensions: they are the backing store EDS binds
+ * CamelNetworkSettings to (host, port, user, auth-mechanism,
+ * security-method), so this needs no CamelSession/CamelService -- and
+ * also sees the values currently being edited in the account editor
+ * (or a "new account" wizard whose Camel service doesn't exist yet).
+ *
+ * Used for two different things, which must not be confused:
+ *   - pre-filling this page (sieve_config_page_load_fields()): only
+ *     host, user and the auth method carry over to ManageSieve. The
+ *     IMAP port/security say nothing about ManageSieve's own (RFC 5804
+ *     only defines STARTTLS on 4190; implicit TLS on a dedicated port
+ *     is a non-standard extra, while IMAPS on 993 is the norm), so
+ *     they are deliberately NOT used there;
+ *   - "Detect Automatically" (folder separator, issue #3), which does
+ *     talk IMAP and therefore needs all of them. */
+typedef struct {
+  gchar   *host;          /* NULL if not set */
+  gchar   *user;          /* NULL if not set */
+  gchar   *auth_method;   /* e.g. "PLAIN", "GSSAPI", "XOAUTH2"; NULL if not set */
+  guint16  port;          /* 0 if not set */
+  gboolean implicit_tls;  /* security method "ssl-on-alternate-port" */
+} AccountServerSettings;
+
+static void
+account_server_settings_clear (AccountServerSettings *s)
+{
+  g_clear_pointer (&s->host, g_free);
+  g_clear_pointer (&s->user, g_free);
+  g_clear_pointer (&s->auth_method, g_free);
+}
+
+static gchar *
+null_if_empty (gchar *str)
+{
+  if (str != NULL && *str == '\0')
+    g_clear_pointer (&str, g_free);
+  return str;
+}
+
+static void
+account_server_settings_read (ESource *account_source, AccountServerSettings *out)
+{
+  memset (out, 0, sizeof (*out));
+
+  if (e_source_has_extension (account_source, E_SOURCE_EXTENSION_AUTHENTICATION)) {
+    ESourceAuthentication *auth =
+      e_source_get_extension (account_source, E_SOURCE_EXTENSION_AUTHENTICATION);
+
+    out->host = null_if_empty (e_source_authentication_dup_host (auth));
+    out->user = null_if_empty (e_source_authentication_dup_user (auth));
+    out->auth_method = null_if_empty (e_source_authentication_dup_method (auth));
+    out->port = e_source_authentication_get_port (auth);
+  }
+
+  if (e_source_has_extension (account_source, E_SOURCE_EXTENSION_SECURITY)) {
+    ESourceSecurity *sec =
+      e_source_get_extension (account_source, E_SOURCE_EXTENSION_SECURITY);
+    g_autofree gchar *method = e_source_security_dup_method (sec);
+
+    out->implicit_tls = g_strcmp0 (method, "ssl-on-alternate-port") == 0;
+  }
+}
+
 /* --- EMailConfigPage: defaults / validation / commit ----------------- */
 
 /* Seeds the fields: the account's sieve-config profile if it exists,
  * otherwise the IMAP receiving server's details (ManageSieve most
- * often shares host + login), port 4190, StartTLS.
+ * often shares host + login), port 4190, StartTLS -- see
+ * AccountServerSettings for why the IMAP port/security are NOT carried
+ * over. When no type is saved yet, an IMAP account using GSSAPI also
+ * pre-selects GSSAPI in the "Type" list
+ * (sieve_sasl_mechanism_for_account_method()), which in turn skips the
+ * automatic type check on opening (sieve_config_page_new()).
  *
  * Called both at widget construction (the account editor does NOT
  * invoke setup_defaults — only the "new account" wizard does; without
@@ -296,20 +364,21 @@ sieve_config_page_load_fields (SieveConfigPage *self)
 {
   const gchar *uid = e_source_get_uid (self->account_source);
   SieveConfig *cfg = sieve_config_load_for_account (uid);
+  AccountServerSettings imap;
   g_autofree gchar *host = g_strdup (cfg->host);
   g_autofree gchar *user = g_strdup (cfg->user);
+  const gchar *auth_mechanism = cfg->auth_mechanism;
   guint16 port = cfg->port;
 
-  if (host == NULL
-      && e_source_has_extension (self->account_source,
-                                 E_SOURCE_EXTENSION_AUTHENTICATION)) {
-    ESourceAuthentication *auth =
-      e_source_get_extension (self->account_source,
-                              E_SOURCE_EXTENSION_AUTHENTICATION);
-    host = e_source_authentication_dup_host (auth);
+  account_server_settings_read (self->account_source, &imap);
+  if (host == NULL) {
+    host = g_strdup (imap.host);
     if (user == NULL)
-      user = e_source_authentication_dup_user (auth);
+      user = g_strdup (imap.user);
   }
+  if (auth_mechanism == NULL && !self->account_is_oauth2)
+    auth_mechanism = sieve_sasl_mechanism_for_account_method (imap.auth_method);
+  account_server_settings_clear (&imap);
 
   gtk_entry_set_text (GTK_ENTRY (self->host_entry), host != NULL ? host : "");
   gtk_entry_set_text (GTK_ENTRY (self->user_entry), user != NULL ? user : "");
@@ -320,7 +389,7 @@ sieve_config_page_load_fields (SieveConfigPage *self)
                                               : SIEVE_ENC_STARTTLS);
   gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->auto_connect_check),
                                 cfg->auto_connect);
-  auth_type_select (self, cfg->auth_mechanism);
+  auth_type_select (self, auth_mechanism);
   gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->gssapi_canonicalize_check),
                                 cfg->gssapi_canonicalize_hostname);
   gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (self->gssapi_fallback_check),
@@ -566,7 +635,7 @@ set_network_busy (SieveConfigPage *self, gboolean busy)
   gtk_widget_set_sensitive (self->check_types_button, !busy);
   gtk_widget_set_sensitive (self->detect_separator_button,
                             !busy && !self->account_is_oauth2
-                              && self->mail_session != NULL);
+                              && self->registry != NULL);
 }
 
 /* Result line of the type check (NULL / "" clears it). */
@@ -972,9 +1041,9 @@ sieve_config_page_check_types_clicked (GtkButton *button, gpointer user_data)
  * There is no public Camel/EDS API exposing the account's real IMAP
  * hierarchy separator (see sieve-imap-probe.h), so this opens a brief
  * IMAP connection of its own: same host/port/encryption as the
- * account's actual receiving server (CamelNetworkSettings, read from
- * the mail session -- NOT the ManageSieve settings above, which are a
- * distinct service on their own host/port), same IMAP password as
+ * account's actual receiving server (AccountServerSettings -- NOT the
+ * ManageSieve settings above, which are a distinct service on their
+ * own host/port), same IMAP password as
  * already resolved by EDS. Not offered for OAuth2 accounts (no
  * password to hand a plain LOGIN) -- the button is kept insensitive
  * for those (see set_network_busy()). */
@@ -1081,8 +1150,7 @@ static void
 sieve_config_page_detect_separator_clicked (GtkButton *button, gpointer user_data)
 {
   SieveConfigPage *self = SIEVE_CONFIG_PAGE (user_data);
-  CamelService *service;
-  CamelSettings *settings;
+  AccountServerSettings imap;
   DetectSeparatorInput *in;
 
   (void) button;
@@ -1090,54 +1158,28 @@ sieve_config_page_detect_separator_clicked (GtkButton *button, gpointer user_dat
   if (self->test_in_flight)
     return;
 
-  if (self->account_is_oauth2 || self->mail_session == NULL) {
+  if (self->account_is_oauth2 || self->registry == NULL) {
     gtk_label_set_text (GTK_LABEL (self->detect_separator_status),
                         _("Not available for this account."));
     return;
   }
 
-  service = camel_session_ref_service (CAMEL_SESSION (self->mail_session),
-                                       e_source_get_uid (self->account_source));
-  if (service == NULL) {
+  account_server_settings_read (self->account_source, &imap);
+  if (imap.host == NULL) {
+    account_server_settings_clear (&imap);
     gtk_label_set_text (GTK_LABEL (self->detect_separator_status),
-                        _("Could not access this account's IMAP settings."));
+                        _("This account has no IMAP server configured."));
     return;
   }
 
-  settings = camel_service_ref_settings (CAMEL_SERVICE (service));
-  g_object_unref (service);
-
-  if (!CAMEL_IS_NETWORK_SETTINGS (settings)) {
-    g_clear_object (&settings);
-    gtk_label_set_text (GTK_LABEL (self->detect_separator_status),
-                        _("This account's receiving server has no network "
-                          "settings to read."));
-    return;
-  }
-
-  {
-    CamelNetworkSettings *ns = CAMEL_NETWORK_SETTINGS (settings);
-    const gchar *host = camel_network_settings_get_host (ns);
-    const gchar *user = camel_network_settings_get_user (ns);
-    guint16 port = camel_network_settings_get_port (ns);
-    CamelNetworkSecurityMethod sec = camel_network_settings_get_security_method (ns);
-
-    if (host == NULL || *host == '\0') {
-      g_object_unref (settings);
-      gtk_label_set_text (GTK_LABEL (self->detect_separator_status),
-                          _("This account has no IMAP server configured."));
-      return;
-    }
-
-    in = g_new0 (DetectSeparatorInput, 1);
-    in->host = g_strdup (host);
-    in->user = g_strdup (user != NULL ? user : "");
-    in->implicit_tls = (sec == CAMEL_NETWORK_SECURITY_METHOD_SSL_ON_ALTERNATE_PORT);
-    in->port = (port != 0) ? port : (in->implicit_tls ? 993 : 143);
-    in->account_uid = g_strdup (e_source_get_uid (self->account_source));
-    in->registry = (self->registry != NULL) ? g_object_ref (self->registry) : NULL;
-  }
-  g_object_unref (settings);
+  in = g_new0 (DetectSeparatorInput, 1);
+  in->host = g_steal_pointer (&imap.host);
+  in->user = g_strdup (imap.user != NULL ? imap.user : "");
+  in->implicit_tls = imap.implicit_tls;
+  in->port = (imap.port != 0) ? imap.port : (in->implicit_tls ? 993 : 143);
+  in->account_uid = g_strdup (e_source_get_uid (self->account_source));
+  in->registry = g_object_ref (self->registry);
+  account_server_settings_clear (&imap);
 
   gtk_label_set_text (GTK_LABEL (self->detect_separator_status), _("Detecting..."));
   network_task_start (self, in, (GDestroyNotify) detect_separator_input_free,
@@ -1291,8 +1333,7 @@ add_field (GtkGrid *grid, gint row, const gchar *label_text,
 }
 
 static GtkWidget *
-sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
-                       EMailSession *session)
+sieve_config_page_new (ESource *account_source, ESourceRegistry *registry)
 {
   SieveConfigPage *self;
   GtkWidget *content;
@@ -1303,7 +1344,6 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
 
   self = g_object_new (SIEVE_TYPE_CONFIG_PAGE, NULL);
   self->account_source = g_object_ref (account_source);
-  self->mail_session = (session != NULL) ? g_object_ref (session) : NULL;
   self->registry = (registry != NULL) ? g_object_ref (registry) : NULL;
   self->account_is_oauth2 =
     sieve_account_source_uses_oauth2 (registry, account_source);
@@ -1448,7 +1488,7 @@ sieve_config_page_new (ESource *account_source, ESourceRegistry *registry,
   self->detect_separator_status = gtk_label_new ("");
   gtk_label_set_xalign (GTK_LABEL (self->detect_separator_status), 0.0);
   gtk_label_set_line_wrap (GTK_LABEL (self->detect_separator_status), TRUE);
-  if (self->account_is_oauth2 || self->mail_session == NULL)
+  if (self->account_is_oauth2 || self->registry == NULL)
     gtk_widget_set_sensitive (self->detect_separator_button, FALSE);
 
   if (self->account_is_oauth2) {
@@ -1639,7 +1679,7 @@ sieve_config_notebook_extension_constructed (GObject *object)
   session = e_mail_config_notebook_get_session (notebook);
   registry = (session != NULL) ? e_mail_session_get_registry (session) : NULL;
 
-  page = sieve_config_page_new (account_source, registry, session);
+  page = sieve_config_page_new (account_source, registry);
   e_mail_config_notebook_add_page (notebook, E_MAIL_CONFIG_PAGE (page));
 }
 

@@ -194,6 +194,7 @@ Against a real server: `test-managesieve --host … --user … [--starttls] [--p
 | Evolution's own account editor, IMAP account: sends `fileinto "INBOX/Sub"` but Dovecot rejects it (`Name must not have '/' characters`) if its own namespace separator isn't `/` (often `.` for Maildir++) | issue #3 (https://github.com/cyr-ius/evolution-sieve-filters/issues/3). Camel's `CamelFolderInfo->full_name` is **always** `/`-normalized internally (confirmed against evolution-data-server's IMAPX provider: `camel_imapx_mailbox_to_folder_path()`), regardless of the server's real separator — and that real separator is **not exposed by any public Camel/EDS API** (`camel-imapx-store.h` / `camel-imapx-settings.h` are deliberately not installed as public headers; verified against the upstream `CMakeLists.txt`). Fix: `sieve_rule_set_translate_folder_separator()` (`src/sieve-model.[ch]`) translates fileinto paths between `/` and the account's real separator at exactly two points in `sieve-editor-dialog.c` (`sync_visual_to_text` / `sync_text_to_visual` — the visual model always stays `/`, matching the Camel folder dropdown; the raw text tab always stays in the real separator, matching what's actually sent/received over ManageSieve). The real separator itself is either entered manually (`sieve-config-page.c`, "Folders" section, per-account) or detected with the "Detect Automatically" button, which opens its own minimal IMAP connection (`src/sieve-imap-probe.[ch]`, `LIST "" ""` — RFC 3501 §6.3.8) since there's no other way to learn it; not available for OAuth2 accounts (no password to hand a plain `LOGIN`). |
 | "Evolution canonicalizes the GSSAPI hostname even though krb5.conf has `dns_canonicalize_hostname = false`" | Not a krb5 bug: **Evolution/Camel does its own canonicalization, in its own code, before krb5 ever sees the hostname.** Read straight from `camel-sasl-gssapi.c` upstream (github.com/GNOME/evolution-data-server), function `sasl_gssapi_challenge_sync()`: `hints.ai_flags = AI_CANONNAME; ai = camel_getaddrinfo (host, NULL, &hints, cancellable, error); str = g_strdup_printf ("%s@%s", service_name, ai->ai_canonname);` — a plain `getaddrinfo(AI_CANONNAME)` forward/CNAME-chasing lookup, generic (IMAP/SMTP/POP3/HTTP all share this function), with **no setting anywhere to disable it**. `dns_canonicalize_hostname` only controls what krb5 itself does internally (`krb5_sname_to_principal()`); it can't affect a hostname Camel already resolved and handed it as a literal string. (Also confirmed via official MIT krb5 docs: `rdns` — reverse/PTR lookup — explicitly "has no effect" when `dns_canonicalize_hostname = false`, so that's not the explanation either.) This plugin's own `sieve-sasl.c` does *not* do this (`GSASL_HOSTNAME` gets the literal host, hence issue #2's manual override) — see the entry right below for the opt-in equivalent now available here. |
 | GSSAPI + DNS alias/CNAME, automatic alternative to typing the canonical hostname | `sieve_sasl_canonicalize_hostname()` (`src/sieve-sasl.c`) reproduces Camel's `AI_CANONNAME` lookup above, opt-in via `SieveSaslCredentials.gssapi_canonicalize_hostname` / the "Canonicalize automatically (DNS)" checkbox (`sieve-config-page.c`) — see the dedicated bullet under "GSSAPI + DNS alias/CNAME (issue #2)" further down. |
+| "Pre-fill ManageSieve's encryption from the IMAP account's (IMAPS → implicit TLS)" | **Don't**: RFC 5804 only defines STARTTLS on 4190; implicit TLS on a dedicated port is a non-standard extra, while IMAPS on 993 is the norm — that mapping would break the common case (e.g. Dovecot defaults) to serve a rare one. `sieve_config_page_load_fields()` therefore only carries over host, user and — via `sieve_sasl_mechanism_for_account_method()` (`src/sieve-sasl.c`, tested in `/sasl/introspect/account-method`) — GSSAPI as the pre-selected "Type" (which also skips the automatic type check on opening). Password mechanisms are not carried over: the IMAP choice says nothing about what the Sieve server offers. The IMAP settings are read from the account ESource's Authentication/Security extensions (`AccountServerSettings` in `sieve-config-page.c`, the backing store of `CamelNetworkSettings`), so no `CamelSession` is needed. |
 
 ## Layout
 
@@ -278,9 +279,12 @@ src/sieve-config-page.[ch]         "Sieve Filters" page of the account
                                    connection via sieve-imap-probe.[ch]
                                    using the account's REAL IMAP
                                    host/port/encryption — read from
-                                   CamelNetworkSettings via the mail
-                                   session, NOT the ManageSieve settings
-                                   above — and its EDS-stored password;
+                                   the account ESource's Authentication
+                                   + Security extensions (the backing
+                                   store of CamelNetworkSettings, see
+                                   `AccountServerSettings`), NOT the
+                                   ManageSieve settings above — and its
+                                   EDS-stored password;
                                    insensitive for OAuth2 accounts) +
                                    "Canonicalize automatically (DNS)"
                                    checkbox (stored as
@@ -514,11 +518,14 @@ UTF-8) still makes `sieve_rule_set_parse()` fail.
 
 ## To do (detailed in README.md "Known limitations")
 
-- **Fine-grained `CamelSettings` reading**: the ManageSieve connection
-  settings have their own page (`sieve-config-page`), pre-filled only
-  with the account's host/user (`ESourceAuthentication`). Still missing:
-  e.g. IMAP security → pre-check "implicit TLS". (`CamelNetworkSettings`
-  is currently read only for the folder separator probe, issue #3.)
+- **ManageSieve port/security auto-discovery**: when no profile is
+  saved, `sieve-config-page` pre-fills host/user from the IMAP account
+  and pre-selects GSSAPI when the IMAP account uses it (see the pitfalls
+  table: the IMAP port/security are deliberately *not* carried over).
+  Port/encryption stay at 4190 + STARTTLS; candidates for doing better:
+  a DNS SRV `_sieve._tcp` lookup (RFC 5804 §1.8 — `src/sieve-srv.[ch]`
+  exists but the page doesn't call it yet), or retrying implicit TLS on
+  4191 when STARTTLS on 4190 fails.
 - **SCRAM-\*-PLUS (TLS channel binding) and GS2-KRB5** — `sieve-sasl.c`
   still sends a `n,` gs2-header (no channel binding).
 - **More constructs in the visual editor** (the parser already reads

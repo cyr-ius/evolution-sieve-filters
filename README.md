@@ -87,7 +87,9 @@ sudo apt install ../evolution-sieve-filters_*.deb
 
 1. **Edit → Accounts**, pick an IMAP account, **Sieve Filters** tab: fill
    in the ManageSieve server/port (StartTLS or implicit TLS) and the
-   username; optionally check "Connect automatically on startup". The
+   username (pre-filled from the IMAP account; an account using Kerberos
+   also gets GSSAPI pre-selected as the authentication type);
+   optionally check "Connect automatically on startup". The
    password is taken from the keyring or, failing that, from the IMAP
    account's own password.
 2. **Edit → Sieve Filters…** opens the dialog: pick the account from the

@@ -168,6 +168,18 @@ sieve_sasl_mechanism_is_client_first (const gchar *mechanism)
   return client_first;
 }
 
+const gchar *
+sieve_sasl_mechanism_for_account_method (const gchar *method)
+{
+  if (method == NULL || g_ascii_strcasecmp (method, "GSSAPI") != 0)
+    return NULL;
+
+  for (gsize i = 0; known_mechs[i] != NULL; i++)
+    if (mech_is_gssapi (known_mechs[i]))
+      return known_mechs[i];
+  return NULL;
+}
+
 /* A mechanism is satisfied if the caller supplies the identity and the
  * secret it consumes. authid is always required. GSSAPI needs no secret
  * here: the identity comes from the caller's Kerberos ticket cache. */
