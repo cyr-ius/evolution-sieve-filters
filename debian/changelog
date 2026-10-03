@@ -1,3 +1,13 @@
+evolution-sieve-filters (0.4.8-1) unstable; urgency=medium
+
+  * Sieve Filters dialog: the status line now reports the authentication
+    type actually used. A GSSAPI login showed "Password reused from the
+    Evolution account." even though the password was never sent; it now
+    shows "Kerberos authentication (GSSAPI).".
+  * Update the French translation.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sat, 03 Oct 2026 10:51:33 +0000
+
 evolution-sieve-filters (0.4.7-1) unstable; urgency=medium
 
   * Account editor's Sieve Filters page: the "Test" button and the
