@@ -1,3 +1,17 @@
+evolution-sieve-filters (0.6.0-1) unstable; urgency=medium
+
+  * Visual editor: vacation auto-replies are now editable, with the
+    message, the subject and the number of days between two replies to
+    the same sender. Multi-line messages are supported.
+  * Visual editor: new actions "Reject with a message", "Set IMAP flags
+    (replace)" and "Remove IMAP flag", and a "Keep a copy" option for
+    "File into" and "Redirect to".
+  * The require line no longer keeps extensions that are not used
+    anymore just because the script contains rules the visual editor
+    cannot represent: those rules are now analyzed too.
+
+ -- cyr-ius <cyr-ius@ipocus.net>  Sat, 03 Oct 2026 12:35:00 +0000
+
 evolution-sieve-filters (0.5.0-1) unstable; urgency=medium
 
   * Sieve scripts are now read with a full RFC 5228 parser. Multi-line
