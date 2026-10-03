@@ -27,16 +27,19 @@
  *     Roundcube's ManageSieve plugin, which leaves the door open to
  *     interoperability).
  *   - sieve_rule_set_parse() reads back a script produced under these
- *     conventions. Any construct the visual editor cannot represent
- *     (not / exists / nested anyof, vacation, unknown actions, blocks
- *     from other tools such as Nextcloud Mail, an `if` without a
- *     marker, hand-written scripts…) is kept as-is in an "opaque" rule
+ *     conventions. The script is first parsed by the generic RFC 5228
+ *     parser (sieve-ast.h), then each top-level unit is mapped onto
+ *     the model. Any construct the visual editor cannot represent
+ *     (not / exists / nested anyof, vacation, unknown actions, an `if`
+ *     with elsif/else branches, blocks from other tools such as
+ *     Nextcloud Mail, an `if` without a marker, a grammatically invalid
+ *     command, hand-written scripts…) is kept as-is in an "opaque" rule
  *     (SieveRule.opaque == TRUE, exact source text in SieveRule.raw):
  *     the visual editor shows it locked, and only the plain-text tab
- *     can modify it. The parser now returns NULL only for a lexically
- *     broken script (unclosed brace or string). An empty script, or one
- *     reduced to comments, yields an empty rule set rather than an
- *     error.
+ *     can modify it. The parser returns NULL only for a lexically
+ *     broken script (unclosed brace, string, "text:" literal or
+ *     comment, invalid UTF-8). An empty script, or one reduced to
+ *     comments, yields an empty rule set rather than an error.
  *   - Round-trip: sieve_rule_set_to_script() copies opaque rules back
  *     byte for byte; the script -> model -> script round trip is stable
  *     (see tests/test-sieve-model.c).

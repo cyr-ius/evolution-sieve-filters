@@ -207,8 +207,9 @@ src/sieve-ast.[ch]                 generic RFC 5228 parser -> syntax tree
                                    from grammar errors, nesting bounded
                                    by SIEVE_AST_MAX_DEPTH); knows no
                                    command and no comment convention;
-                                   built into sieve_model_lib; NOT yet
-                                   used by sieve_rule_set_parse()
+                                   built into sieve_model_lib, used by
+                                   sieve_rule_set_parse() /
+                                   sieve_rule_unlock()
 src/sieve-secret.[ch]              password storage in the keyring
                                    (libsecret); pure GLib/GIO, testable alone
 src/sieve-account.[ch]             reading Evolution accounts; OAuth2
@@ -426,6 +427,15 @@ msgmerge --update po/fr.po po/evolution-sieve-filters.pot
   "opaque" rules (`SieveRule.opaque` / `.raw`): the visual editor shows
   them locked (padlock, read-only), only the plain text tab can still
   edit them.
+- Parsing is two-step: `sieve_ast_parse()` (`sieve-ast.c`, generic
+  RFC 5228 tree, knows no command) then the mapping in `sieve-model.c`
+  (`rule_from_if()`, `condition_from_test()`, `action_from_command()`).
+  The `# rule:[name]` marker and `if false # <test>` conventions are
+  recognized by the mapping layer from the AST's byte offsets (the
+  comments before a command, the comment after `false`) — keep them out
+  of `sieve-ast.c`. A marked `if` followed by `elsif`/`else` stays a
+  single opaque unit (a structured `if` with a dangling `else` would
+  break on reorder).
 - Per-rule enable/disable (`SieveRule.enabled`): a disabled rule is
   serialized as `if false # <mode>(<conditions>)` — the same convention
   Roundcube's managesieve plugin uses — so the original test survives
@@ -469,12 +479,13 @@ verbatim from another tool), and that only a lexically broken script
   still sends a `n,` gs2-header (no channel binding).
 - **A real RFC 5228 parser**, to make more constructs (`not`, `exists`,
   nested `anyof`, `vacation`…) representable at all in the visual
-  editor, plus the `variables` actions (`set`…). Step 1 done: the
-  generic parser `src/sieve-ast.[ch]` exists and is tested on its own.
-  Next step: rebuild `sieve_rule_set_parse()` / `sieve_rule_unlock()` on
-  top of it (dropping `TK_RULE` and `scan_toplevel_unit_end()`, which
-  doesn't know `text:` literals: an unbalanced `"` inside one currently
-  fails the whole parse, a `}` makes the next command get swallowed
-  into the same opaque rule), keeping `tests/test-sieve-model.c` green.
+  editor, plus the `variables` actions (`set`…). The parsing side is
+  done: `src/sieve-ast.[ch]` (full RFC 5228 grammar) and
+  `sieve_rule_set_parse()` / `sieve_rule_unlock()` are built on it.
+  What's left is the model + UI: `not`/`exists` (a negation flag on
+  `SieveCondition`, a new `SieveMatch`), more actions (`vacation`,
+  `reject`, real `setflag`, `:copy` — today `setflag` is read back as
+  `addflag` and action tags like `:copy` are dropped), then nested
+  `anyof`/`allof` (tree-shaped model and editor).
   The `variables` *require* itself is already handled: kept through the
   visual editor and recomputed from `${...}` references (issue #4).

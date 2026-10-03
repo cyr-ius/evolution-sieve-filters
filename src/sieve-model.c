@@ -1,7 +1,9 @@
 /* sieve-model.c — see sieve-model.h for the overview. */
 
 #include "sieve-model.h"
+#include "sieve-ast.h"
 
+#include <stdarg.h>
 #include <string.h>
 
 G_DEFINE_QUARK (sieve-model-error-quark, sieve_model_error)
@@ -414,285 +416,83 @@ sieve_rule_set_to_script (const SieveRuleSet *set)
   return g_string_free (out, FALSE);
 }
 
-/* ---- Lexical analysis ----------------------------------------------------
+/* ---- Syntactic analysis --------------------------------------------------
  *
- * Minimal tokenizer: just enough to read back what
- * sieve_rule_set_to_script() produces, plus a few common variants
- * (a single unwrapped test, string lists, extra tags ignored). Nothing
- * more: anything outside this scope raises an error and the caller
- * stays in plain-text editing.
+ * The script is first parsed into a generic syntax tree (sieve-ast.h,
+ * the full RFC 5228 grammar), then each top-level unit is mapped onto
+ * the model when it has one of the shapes the visual editor can
+ * represent. Every mapping failure below is SIEVE_MODEL_ERROR_UNSUPPORTED:
+ * the caller falls back to an opaque rule (or, for sieve_rule_unlock(),
+ * leaves the rule locked).
  */
 
-typedef enum {
-  TK_EOF,
-  TK_LPAREN, TK_RPAREN, TK_LBRACE, TK_RBRACE, TK_LBRACKET, TK_RBRACKET,
-  TK_COMMA, TK_SEMI,
-  TK_STRING, TK_IDENT, TK_TAG,
-  TK_RULE    /* "# rule:[name]" marker; val == name */
-} TokKind;
-
-typedef struct {
-  const gchar *cur;
-  const gchar *trivia_start; /* start of whitespace/comments preceding the token */
-  const gchar *tok_start;    /* first character of the current token */
-  TokKind      kind;
-  gchar       *val;  /* STRING / IDENT / TAG / RULE */
-} Lex;
-
+G_GNUC_PRINTF (2, 3)
 static void
-lex_clear (Lex *lx)
+unsupported (GError **error, const gchar *fmt, ...)
 {
-  g_clear_pointer (&lx->val, g_free);
+  va_list ap;
+
+  va_start (ap, fmt);
+  g_propagate_error (error, g_error_new_valist (SIEVE_MODEL_ERROR,
+                                                SIEVE_MODEL_ERROR_UNSUPPORTED,
+                                                fmt, ap));
+  va_end (ap);
 }
 
-static void
-lex_syntax_error (GError **error, const gchar *msg)
+static const SieveAstArg *
+arg_at (const GPtrArray *args, guint i)
 {
-  g_set_error_literal (error, SIEVE_MODEL_ERROR, SIEVE_MODEL_ERROR_SYNTAX, msg);
+  return g_ptr_array_index (args, i);
 }
 
-static gboolean
-lex_advance (Lex *lx, GError **error)
+/* Index of the first argument that isn't a tag, from `i` on. */
+static guint
+skip_tags (const GPtrArray *args, guint i)
 {
-  const gchar *p = lx->cur;
-
-  lex_clear (lx);
-  lx->trivia_start = p;
-
-  for (;;) {
-    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
-      p++;
-
-    if (*p == '#') {
-      const gchar *line_start = p;
-      const gchar *eol = p;
-      gchar *line, *trimmed;
-
-      while (*eol != '\0' && *eol != '\n')
-        eol++;
-      line = g_strndup (p + 1, eol - (p + 1));
-      trimmed = g_strstrip (line);
-
-      if (g_str_has_prefix (trimmed, "rule:[")) {
-        gchar *rb = strrchr (trimmed, ']');
-        if (rb != NULL && rb >= trimmed + 6) {
-          lx->kind = TK_RULE;
-          lx->val = g_strndup (trimmed + 6, rb - (trimmed + 6));
-          lx->tok_start = line_start;
-          lx->cur = (*eol == '\n') ? eol + 1 : eol;
-          g_free (line);
-          return TRUE;
-        }
-      }
-      g_free (line);
-      p = (*eol == '\n') ? eol + 1 : eol;
-      continue;
-    }
-
-    if (p[0] == '/' && p[1] == '*') {
-      const gchar *e = strstr (p + 2, "*/");
-      if (e == NULL) {
-        lex_syntax_error (error, "unterminated \"/* ... */\" comment");
-        return FALSE;
-      }
-      p = e + 2;
-      continue;
-    }
-    break;
-  }
-
-  lx->cur = p;
-  lx->tok_start = p;
-
-  if (*p == '\0') {
-    lx->kind = TK_EOF;
-    return TRUE;
-  }
-
-  switch (*p) {
-    case '(': lx->kind = TK_LPAREN;   lx->cur = p + 1; return TRUE;
-    case ')': lx->kind = TK_RPAREN;   lx->cur = p + 1; return TRUE;
-    case '{': lx->kind = TK_LBRACE;   lx->cur = p + 1; return TRUE;
-    case '}': lx->kind = TK_RBRACE;   lx->cur = p + 1; return TRUE;
-    case '[': lx->kind = TK_LBRACKET; lx->cur = p + 1; return TRUE;
-    case ']': lx->kind = TK_RBRACKET; lx->cur = p + 1; return TRUE;
-    case ',': lx->kind = TK_COMMA;    lx->cur = p + 1; return TRUE;
-    case ';': lx->kind = TK_SEMI;     lx->cur = p + 1; return TRUE;
-    default: break;
-  }
-
-  if (*p == '"') {
-    GString *s = g_string_new (NULL);
-    p++;
-    while (*p != '\0' && *p != '"') {
-      if (*p == '\\' && p[1] != '\0') {
-        p++;
-        g_string_append_c (s, *p++);
-      } else {
-        g_string_append_c (s, *p++);
-      }
-    }
-    if (*p != '"') {
-      g_string_free (s, TRUE);
-      lex_syntax_error (error, "unterminated quoted string");
-      return FALSE;
-    }
-    p++;
-    lx->kind = TK_STRING;
-    lx->val = g_string_free (s, FALSE);
-    lx->cur = p;
-    return TRUE;
-  }
-
-  if (*p == ':') {
-    const gchar *st = ++p;
-    while (g_ascii_isalnum (*p) || *p == '_')
-      p++;
-    if (p == st) {
-      lex_syntax_error (error, "empty tag after \":\"");
-      return FALSE;
-    }
-    lx->kind = TK_TAG;
-    lx->val = g_strndup (st, p - st);
-    lx->cur = p;
-    return TRUE;
-  }
-
-  if (g_ascii_isalnum (*p) || *p == '_') {
-    const gchar *st = p;
-    while (g_ascii_isalnum (*p) || *p == '_' || *p == '.')
-      p++;
-    lx->kind = TK_IDENT;
-    lx->val = g_strndup (st, p - st);
-    lx->cur = p;
-    return TRUE;
-  }
-
-  {
-    gchar *msg = g_strdup_printf ("unexpected character \"%c\"", *p);
-    lex_syntax_error (error, msg);
-    g_free (msg);
-  }
-  return FALSE;
+  while (i < args->len && arg_at (args, i)->kind == SIEVE_AST_ARG_TAG)
+    i++;
+  return i;
 }
 
-/* ---- Syntactic analysis --------------------------------------------------- */
-
-static void
-unsupported (GError **error, const gchar *msg)
+/* A single string: a bare string, or a one-entry list (semantically
+ * identical). A list with more than one entry means "any of these
+ * values", which only a test's value argument can represent (see
+ * arg_string_list()): anywhere else it's unsupported rather than
+ * silently reduced to its first entry. */
+static const gchar *
+arg_single_string (const SieveAstArg *arg, GError **error)
 {
-  g_set_error_literal (error, SIEVE_MODEL_ERROR, SIEVE_MODEL_ERROR_UNSUPPORTED, msg);
-}
-
-/* Reads a string, or a singleton list "[\"a\"]" (semantically identical
- * to a bare string). A list with more than one entry means "matches any
- * of these values", which the model has no way to represent with a
- * single `value` field: the caller must treat that as unsupported
- * (falling back to an opaque rule) rather than silently keep only the
- * first entry and drop the rest. */
-static gboolean
-expect_string (Lex *lx, gchar **out, GError **error)
-{
-  *out = NULL;
-
-  if (lx->kind == TK_LBRACKET) {
-    guint count = 0;
-
-    if (!lex_advance (lx, error))
-      return FALSE;
-    if (lx->kind != TK_STRING) {
-      unsupported (error, "expected a string in the list");
-      return FALSE;
-    }
-    *out = g_strdup (lx->val);
-    count = 1;
-    if (!lex_advance (lx, error))
-      goto fail;
-    while (lx->kind == TK_COMMA) {
-      if (!lex_advance (lx, error))
-        goto fail;
-      if (lx->kind != TK_STRING) {
-        unsupported (error, "expected a string in the list");
-        goto fail;
-      }
-      count++;
-      if (!lex_advance (lx, error))
-        goto fail;
-    }
-    if (lx->kind != TK_RBRACKET) {
-      unsupported (error, "expected \"]\" to close the list");
-      goto fail;
-    }
-    if (count > 1) {
-      unsupported (error, "a value list with more than one entry is not supported by the visual editor");
-      goto fail;
-    }
-    return lex_advance (lx, error);
-  }
-
-  if (lx->kind != TK_STRING) {
+  if (arg->kind == SIEVE_AST_ARG_STRING)
+    return arg->str;
+  if (arg->kind == SIEVE_AST_ARG_STRING_LIST && arg->list->len == 1)
+    return g_ptr_array_index (arg->list, 0);
+  if (arg->kind == SIEVE_AST_ARG_STRING_LIST)
+    unsupported (error, "a value list with more than one entry is not supported by the visual editor");
+  else
     unsupported (error, "expected a string");
-    return FALSE;
-  }
-  *out = g_strdup (lx->val);
-  return lex_advance (lx, error);
-
-fail:
-  g_clear_pointer (out, g_free);
-  return FALSE;
+  return NULL;
 }
 
-/* Like expect_string(), but for a test's *value* argument, where the
- * visual editor can represent a list of any length ("matches any of
- * these values"): every entry is kept, in order. Returns a newly
- * allocated GPtrArray of at least one gchar* on success, NULL + `error`
- * otherwise. */
+/* A test's value argument, where the visual editor can represent a list
+ * of any length: every entry is kept, in order. Newly allocated array of
+ * at least one gchar*, or NULL + `error`. */
 static GPtrArray *
-expect_string_list (Lex *lx, GError **error)
+arg_string_list (const SieveAstArg *arg, GError **error)
 {
-  GPtrArray *out = g_ptr_array_new_with_free_func (g_free);
+  GPtrArray *out;
 
-  if (lx->kind == TK_LBRACKET) {
-    if (!lex_advance (lx, error))
-      goto fail;
-    if (lx->kind != TK_STRING) {
-      unsupported (error, "expected a string in the list");
-      goto fail;
-    }
-    g_ptr_array_add (out, g_strdup (lx->val));
-    if (!lex_advance (lx, error))
-      goto fail;
-    while (lx->kind == TK_COMMA) {
-      if (!lex_advance (lx, error))
-        goto fail;
-      if (lx->kind != TK_STRING) {
-        unsupported (error, "expected a string in the list");
-        goto fail;
-      }
-      g_ptr_array_add (out, g_strdup (lx->val));
-      if (!lex_advance (lx, error))
-        goto fail;
-    }
-    if (lx->kind != TK_RBRACKET) {
-      unsupported (error, "expected \"]\" to close the list");
-      goto fail;
-    }
-    if (!lex_advance (lx, error))
-      goto fail;
+  if (arg->kind == SIEVE_AST_ARG_STRING) {
+    out = g_ptr_array_new_with_free_func (g_free);
+    g_ptr_array_add (out, g_strdup (arg->str));
     return out;
   }
-
-  if (lx->kind != TK_STRING) {
-    unsupported (error, "expected a string");
-    goto fail;
+  if (arg->kind == SIEVE_AST_ARG_STRING_LIST) {
+    out = g_ptr_array_new_full (arg->list->len, g_free);
+    for (guint i = 0; i < arg->list->len; i++)
+      g_ptr_array_add (out, g_strdup (g_ptr_array_index (arg->list, i)));
+    return out;
   }
-  g_ptr_array_add (out, g_strdup (lx->val));
-  if (!lex_advance (lx, error))
-    goto fail;
-  return out;
-
-fail:
-  g_ptr_array_unref (out);
+  unsupported (error, "expected a string or a string list");
   return NULL;
 }
 
@@ -724,261 +524,210 @@ set_field_from_header (SieveCondition *c, const gchar *hdr)
   }
 }
 
-/* Parses a single test and adds the corresponding condition to `rule`.
- * "true" is accepted without adding anything, since an empty condition
- * list is serialized back as "if true" (see sieve_rule_set_to_script()).
- * "false" has no such round-trip: an empty condition list can only mean
- * "true", so silently accepting "false" here would flip the rule's
- * logic on save. It's therefore left unsupported (falls back to an
- * opaque, verbatim-kept rule). */
 static gboolean
-parse_test (Lex *lx, SieveRule *rule, GError **error)
+is_bare_test (const SieveAstTest *t, const gchar *name)
 {
-  gchar *name;
-  gboolean ok = FALSE;
+  return g_strcmp0 (t->name, name) == 0 && t->args->len == 0 && t->tests == NULL;
+}
+
+/* Maps a single test onto a condition. "true"/"false" are handled by
+ * the callers (see conditions_from_expression()). */
+static SieveCondition *
+condition_from_test (const SieveAstTest *t, GError **error)
+{
+  const GPtrArray *args = t->args;
   SieveCondition *c = NULL;
+  GPtrArray *vals;
+  guint i;
 
-  if (lx->kind != TK_IDENT) {
-    unsupported (error, "expected a test name");
-    return FALSE;
-  }
-  name = g_ascii_strdown (lx->val, -1);
+  if (t->tests != NULL)
+    goto unknown_test;
 
-  if (g_strcmp0 (name, "true") == 0) {
-    ok = lex_advance (lx, error);
-    goto out;
-  }
-
-  if (g_strcmp0 (name, "false") == 0) {
-    unsupported (error, "test \"false\" is not supported by the visual editor");
-    goto out;
-  }
-
-  if (g_strcmp0 (name, "header") == 0 || g_strcmp0 (name, "address") == 0 ||
-      g_strcmp0 (name, "envelope") == 0) {
-    gchar *hdr = NULL;
-    GPtrArray *vals;
+  if (g_strcmp0 (t->name, "header") == 0 || g_strcmp0 (t->name, "address") == 0 ||
+      g_strcmp0 (t->name, "envelope") == 0) {
+    const gchar *hdr;
 
     c = sieve_condition_new ();
-    if (!lex_advance (lx, error))
-      goto out;
-    while (lx->kind == TK_TAG) {          /* :contains / :is / :matches / :regex */
-      SieveMatch m;
-      if (!match_from_tag (lx->val, &m)) {
-        gchar *msg = g_strdup_printf ("tag \":%s\" not supported by the visual editor", lx->val);
-        unsupported (error, msg);
-        g_free (msg);
-        goto out;
+    for (i = 0; i < args->len && arg_at (args, i)->kind == SIEVE_AST_ARG_TAG; i++) {
+      if (!match_from_tag (arg_at (args, i)->str, &c->match)) {
+        unsupported (error, "tag \":%s\" not supported by the visual editor",
+                     arg_at (args, i)->str);
+        goto fail;
       }
-      c->match = m;
-      if (!lex_advance (lx, error))
-        goto out;
     }
-    if (!expect_string (lx, &hdr, error))
-      goto out;
-    vals = expect_string_list (lx, error);
-    if (vals == NULL) {
-      g_free (hdr);
-      goto out;
+    if (args->len - i != 2) {
+      unsupported (error, "expected a header name and a value");
+      goto fail;
     }
+    hdr = arg_single_string (arg_at (args, i), error);
+    if (hdr == NULL)
+      goto fail;
+    vals = arg_string_list (arg_at (args, i + 1), error);
+    if (vals == NULL)
+      goto fail;
     set_field_from_header (c, hdr);
-    g_free (hdr);
     g_ptr_array_unref (c->values);
     c->values = vals;
-    g_ptr_array_add (rule->conditions, g_steal_pointer (&c));
-    ok = TRUE;
-    goto out;
+    return c;
   }
 
-  if (g_strcmp0 (name, "size") == 0) {
+  if (g_strcmp0 (t->name, "size") == 0) {
     c = sieve_condition_new ();
     c->field = SIEVE_FIELD_SIZE;
     c->match = SIEVE_MATCH_OVER;
-    if (!lex_advance (lx, error))
-      goto out;
-    if (lx->kind == TK_TAG) {
-      c->match = (g_ascii_strcasecmp (lx->val, "under") == 0)
+    i = 0;
+    if (i < args->len && arg_at (args, i)->kind == SIEVE_AST_ARG_TAG) {
+      c->match = (g_strcmp0 (arg_at (args, i)->str, "under") == 0)
                    ? SIEVE_MATCH_UNDER : SIEVE_MATCH_OVER;
-      if (!lex_advance (lx, error))
-        goto out;
+      i++;
     }
-    if (lx->kind != TK_IDENT) {
+    if (args->len - i != 1 || arg_at (args, i)->kind != SIEVE_AST_ARG_NUMBER) {
       unsupported (error, "expected a size after \"size\" (e.g. 1M)");
-      goto out;
+      goto fail;
     }
-    sieve_condition_set_value (c, lx->val);
-    if (!lex_advance (lx, error))
-      goto out;
-    g_ptr_array_add (rule->conditions, g_steal_pointer (&c));
-    ok = TRUE;
-    goto out;
+    sieve_condition_set_value (c, arg_at (args, i)->str);
+    return c;
   }
 
-  if (g_strcmp0 (name, "body") == 0) {
-    GPtrArray *vals;
-
+  if (g_strcmp0 (t->name, "body") == 0) {
     c = sieve_condition_new ();
     c->field = SIEVE_FIELD_BODY;
-    if (!lex_advance (lx, error))
-      goto out;
-    while (lx->kind == TK_TAG) {          /* :text (no-op, always re-emitted) or
-                                            * :contains / :is / :matches / :regex.
-                                            * ":raw" changes semantics and isn't
-                                            * representable: left as unsupported. */
-      SieveMatch m;
-      if (g_ascii_strcasecmp (lx->val, "text") == 0) {
-        /* no-op */
-      } else if (match_from_tag (lx->val, &m)) {
-        c->match = m;
-      } else {
-        gchar *msg = g_strdup_printf ("tag \":%s\" not supported by the visual editor", lx->val);
-        unsupported (error, msg);
-        g_free (msg);
-        goto out;
+    /* :text (no-op, always re-emitted) or :contains / :is / :matches /
+     * :regex. ":raw" changes semantics and isn't representable. */
+    for (i = 0; i < args->len && arg_at (args, i)->kind == SIEVE_AST_ARG_TAG; i++) {
+      const gchar *tag = arg_at (args, i)->str;
+
+      if (g_strcmp0 (tag, "text") != 0 && !match_from_tag (tag, &c->match)) {
+        unsupported (error, "tag \":%s\" not supported by the visual editor", tag);
+        goto fail;
       }
-      if (!lex_advance (lx, error))
-        goto out;
     }
-    vals = expect_string_list (lx, error);
+    if (args->len - i != 1) {
+      unsupported (error, "expected a value after \"body\"");
+      goto fail;
+    }
+    vals = arg_string_list (arg_at (args, i), error);
     if (vals == NULL)
-      goto out;
+      goto fail;
     g_ptr_array_unref (c->values);
     c->values = vals;
-    g_ptr_array_add (rule->conditions, g_steal_pointer (&c));
-    ok = TRUE;
-    goto out;
+    return c;
   }
 
-  {
-    gchar *msg = g_strdup_printf ("test \"%s\" not supported by the visual editor", name);
-    unsupported (error, msg);
-    g_free (msg);
-  }
-
-out:
+unknown_test:
+  unsupported (error, "test \"%s\" not supported by the visual editor", t->name);
+fail:
   g_clear_pointer (&c, sieve_condition_free);
-  g_free (name);
-  return ok;
+  return NULL;
 }
 
+/* "true" inside a list is accepted without adding anything, the same
+ * way as a whole "true" expression (see conditions_from_expression()). */
 static gboolean
-parse_action (Lex *lx, SieveRule *rule, GError **error)
+add_condition (const SieveAstTest *t, SieveRule *rule, GError **error)
 {
-  gchar *name;
-  gboolean ok = FALSE;
-  SieveAction *a = NULL;
+  SieveCondition *c;
 
-  if (lx->kind != TK_IDENT) {
-    unsupported (error, "expected an action name");
+  if (is_bare_test (t, "true"))
+    return TRUE;
+  c = condition_from_test (t, error);
+  if (c == NULL)
     return FALSE;
-  }
-  name = g_ascii_strdown (lx->val, -1);
-  if (!lex_advance (lx, error))
-    goto out;
-
-  if (g_strcmp0 (name, "keep") == 0) {
-    a = sieve_action_new (SIEVE_ACTION_KEEP);
-  } else if (g_strcmp0 (name, "discard") == 0) {
-    a = sieve_action_new (SIEVE_ACTION_DISCARD);
-  } else if (g_strcmp0 (name, "stop") == 0) {
-    a = sieve_action_new (SIEVE_ACTION_STOP);
-  } else if (g_strcmp0 (name, "fileinto") == 0 || g_strcmp0 (name, "redirect") == 0 ||
-             g_strcmp0 (name, "addflag") == 0 || g_strcmp0 (name, "setflag") == 0) {
-    SieveActionType t = (g_strcmp0 (name, "fileinto") == 0) ? SIEVE_ACTION_FILEINTO
-                      : (g_strcmp0 (name, "redirect") == 0) ? SIEVE_ACTION_REDIRECT
-                      : SIEVE_ACTION_ADDFLAG;
-    gchar *arg = NULL;
-
-    a = sieve_action_new (t);
-    while (lx->kind == TK_TAG) {          /* :copy / :flags ... ignored */
-      if (!lex_advance (lx, error))
-        goto out;
-    }
-    if (!expect_string (lx, &arg, error))
-      goto out;
-    /* imap4flags: "addflag \"var\" \"\\Seen\"" — keep the last string. */
-    while (lx->kind == TK_STRING) {
-      g_free (arg);
-      arg = g_strdup (lx->val);
-      if (!lex_advance (lx, error)) {
-        g_free (arg);
-        goto out;
-      }
-    }
-    a->arg = arg;
-  } else {
-    gchar *msg = g_strdup_printf ("action \"%s\" not supported by the visual editor", name);
-    unsupported (error, msg);
-    g_free (msg);
-    goto out;
-  }
-
-  if (lx->kind != TK_SEMI) {
-    unsupported (error, "expected \";\" after the action");
-    goto out;
-  }
-  if (!lex_advance (lx, error))
-    goto out;
-
-  g_ptr_array_add (rule->actions, g_steal_pointer (&a));
-  ok = TRUE;
-
-out:
-  g_clear_pointer (&a, sieve_action_free);
-  g_free (name);
-  return ok;
+  g_ptr_array_add (rule->conditions, c);
+  return TRUE;
 }
 
-/* Parses "allof (test, ...)" / "anyof (test, ...)" / "true" / a single
- * unwrapped test, setting rule->mode and adding to rule->conditions.
- * Factored out of parse_if() so it can also be applied to the trailing
- * comment of a disabled rule ("if false # <this>") — see parse_if(). */
+/* "allof (test, ...)" / "anyof (test, ...)" / "true" / a single
+ * unwrapped test: sets rule->mode and adds to rule->conditions.
+ * "true" adds nothing, since an empty condition list is serialized back
+ * as "if true" (see sieve_rule_set_to_script()). "false" has no such
+ * round trip: an empty condition list can only mean "true", so silently
+ * accepting "false" here would flip the rule's logic on save. It's
+ * therefore left unsupported (falls back to an opaque, verbatim-kept
+ * rule) — except as a disabled rule's marker, see rule_from_if(). */
 static gboolean
-parse_test_expression (Lex *lx, SieveRule *rule, GError **error)
+conditions_from_expression (const SieveAstTest *t, SieveRule *rule, GError **error)
 {
-  if (lx->kind == TK_IDENT &&
-      (g_ascii_strcasecmp (lx->val, "allof") == 0 ||
-       g_ascii_strcasecmp (lx->val, "anyof") == 0)) {
-    rule->mode = (g_ascii_strcasecmp (lx->val, "anyof") == 0)
-                   ? SIEVE_MATCH_MODE_ANY : SIEVE_MATCH_MODE_ALL;
-    if (!lex_advance (lx, error))
-      return FALSE;
-    if (lx->kind != TK_LPAREN) {
+  if (g_strcmp0 (t->name, "allof") == 0 || g_strcmp0 (t->name, "anyof") == 0) {
+    if (t->args->len != 0 || !t->test_list) {
       unsupported (error, "expected \"(\" after allof/anyof");
       return FALSE;
     }
-    if (!lex_advance (lx, error))
-      return FALSE;
-    for (;;) {
-      if (!parse_test (lx, rule, error))
+    rule->mode = (g_strcmp0 (t->name, "anyof") == 0)
+                   ? SIEVE_MATCH_MODE_ANY : SIEVE_MATCH_MODE_ALL;
+    for (guint i = 0; i < t->tests->len; i++)
+      if (!add_condition (g_ptr_array_index (t->tests, i), rule, error))
         return FALSE;
-      if (lx->kind != TK_COMMA)
-        break;
-      if (!lex_advance (lx, error))
-        return FALSE;
-    }
-    if (lx->kind != TK_RPAREN) {
-      unsupported (error, "expected \")\" to close the test list");
-      return FALSE;
-    }
-    return lex_advance (lx, error);
-  }
-
-  if (lx->kind == TK_IDENT && g_ascii_strcasecmp (lx->val, "true") == 0) {
-    rule->mode = SIEVE_MATCH_MODE_ALL;
-    return lex_advance (lx, error);
+    return TRUE;
   }
 
   rule->mode = SIEVE_MATCH_MODE_ALL;
-  return parse_test (lx, rule, error);
+  return add_condition (t, rule, error);
+}
+
+static gboolean
+action_from_command (const SieveAstCommand *cmd, SieveRule *rule, GError **error)
+{
+  const GPtrArray *args = cmd->args;
+  SieveAction *a;
+  const gchar *arg = NULL;
+  guint i;
+
+  if (cmd->tests != NULL || cmd->block != NULL) {
+    unsupported (error, "expected \";\" after the action");
+    return FALSE;
+  }
+
+  if (g_strcmp0 (cmd->name, "keep") == 0 || g_strcmp0 (cmd->name, "discard") == 0 ||
+      g_strcmp0 (cmd->name, "stop") == 0) {
+    if (args->len != 0) {
+      unsupported (error, "expected \";\" after the action");
+      return FALSE;
+    }
+    a = sieve_action_new (g_strcmp0 (cmd->name, "keep") == 0 ? SIEVE_ACTION_KEEP
+                        : g_strcmp0 (cmd->name, "discard") == 0 ? SIEVE_ACTION_DISCARD
+                        : SIEVE_ACTION_STOP);
+    g_ptr_array_add (rule->actions, a);
+    return TRUE;
+  }
+
+  if (g_strcmp0 (cmd->name, "fileinto") == 0 || g_strcmp0 (cmd->name, "redirect") == 0 ||
+      g_strcmp0 (cmd->name, "addflag") == 0 || g_strcmp0 (cmd->name, "setflag") == 0) {
+    /* Leading tags (:copy / :flags ...) are ignored. */
+    i = skip_tags (args, 0);
+    if (i >= args->len) {
+      unsupported (error, "expected a string");
+      return FALSE;
+    }
+    arg = arg_single_string (arg_at (args, i), error);
+    if (arg == NULL)
+      return FALSE;
+    /* imap4flags: "addflag \"var\" \"\\Seen\"" — keep the last string. */
+    for (i++; i < args->len; i++) {
+      if (arg_at (args, i)->kind != SIEVE_AST_ARG_STRING) {
+        unsupported (error, "expected \";\" after the action");
+        return FALSE;
+      }
+      arg = arg_at (args, i)->str;
+    }
+    a = sieve_action_new (g_strcmp0 (cmd->name, "fileinto") == 0 ? SIEVE_ACTION_FILEINTO
+                        : g_strcmp0 (cmd->name, "redirect") == 0 ? SIEVE_ACTION_REDIRECT
+                        : SIEVE_ACTION_ADDFLAG);
+    a->arg = g_strdup (arg);
+    g_ptr_array_add (rule->actions, a);
+    return TRUE;
+  }
+
+  unsupported (error, "action \"%s\" not supported by the visual editor", cmd->name);
+  return FALSE;
 }
 
 /* If, starting at `p`, only horizontal whitespace precedes a "#" before
  * the next newline (or end of string), returns a newly-allocated,
  * stripped copy of the comment's text; otherwise NULL. Used to recover
  * the original test of a disabled rule ("if false # <test>", see
- * parse_if()) — the same convention Roundcube's managesieve plugin uses
- * to disable a rule without deleting it. */
+ * rule_from_if()) — the same convention Roundcube's managesieve plugin
+ * uses to disable a rule without deleting it. */
 static gchar *
 extract_same_line_comment (const gchar *p)
 {
@@ -996,62 +745,65 @@ extract_same_line_comment (const gchar *p)
   return g_strstrip (g_strndup (start, end - start));
 }
 
+/* Conditions of a disabled rule, from its "if false # <test>" comment:
+ * parsed as the test of a throwaway "if <test> {}". */
 static gboolean
-parse_if (Lex *lx, SieveRule *rule, GError **error)
+conditions_from_comment (const gchar *comment, SieveRule *rule)
 {
-  if (lx->kind != TK_IDENT || g_ascii_strcasecmp (lx->val, "if") != 0) {
+  g_autofree gchar *wrapped = g_strconcat ("if ", comment, "\n{}", NULL);
+  g_autoptr (SieveAst) ast = sieve_ast_parse (wrapped, NULL);
+  const SieveAstCommand *cmd;
+
+  if (ast == NULL || ast->commands->len != 1)
+    return FALSE;
+  cmd = g_ptr_array_index (ast->commands, 0);
+  if (g_strcmp0 (cmd->name, "if") != 0 || cmd->args->len != 0 ||
+      cmd->tests == NULL || cmd->test_list || cmd->block == NULL ||
+      cmd->block->len != 0)
+    return FALSE;
+  return conditions_from_expression (g_ptr_array_index (cmd->tests, 0), rule, NULL);
+}
+
+/* Maps "if <test> { <actions> }" onto `rule`. */
+static gboolean
+rule_from_if (const SieveAst *ast, const SieveAstCommand *cmd, SieveRule *rule,
+              GError **error)
+{
+  const SieveAstTest *test;
+
+  if (g_strcmp0 (cmd->name, "if") != 0) {
     unsupported (error, "expected \"if\" after the rule marker");
     return FALSE;
   }
-  if (!lex_advance (lx, error))
+  if (cmd->args->len != 0 || cmd->tests == NULL || cmd->test_list ||
+      cmd->block == NULL) {
+    unsupported (error, "expected a test and an action block after \"if\"");
     return FALSE;
+  }
+  test = g_ptr_array_index (cmd->tests, 0);
 
-  if (lx->kind == TK_IDENT && g_ascii_strcasecmp (lx->val, "false") == 0) {
-    g_autofree gchar *comment = extract_same_line_comment (lx->cur);
+  if (is_bare_test (test, "false")) {
+    g_autofree gchar *comment = extract_same_line_comment (ast->source + test->end);
 
     rule->enabled = FALSE;
     rule->mode = SIEVE_MATCH_MODE_ALL;
-    if (!lex_advance (lx, error)) /* also skips the trailing comment, if any */
+    /* Not a recognizable test: don't silently drop it (it would be lost
+     * for good on the next save). Fall back to opaque instead, keeping
+     * the exact original text. */
+    if (comment != NULL && !conditions_from_comment (comment, rule)) {
+      unsupported (error, "disabled rule's trailing comment is not a recognizable test");
       return FALSE;
-
-    if (comment != NULL) {
-      Lex inner = { 0 };
-      gboolean inner_ok;
-
-      inner.cur = comment;
-      inner_ok = lex_advance (&inner, NULL) &&
-                 parse_test_expression (&inner, rule, NULL) &&
-                 inner.kind == TK_EOF;
-      lex_clear (&inner);
-      if (!inner_ok) {
-        /* Not a recognizable test: don't silently drop it (it would be
-         * lost for good on the next save). Fall back to opaque instead,
-         * keeping the exact original text. */
-        unsupported (error, "disabled rule's trailing comment is not a recognizable test");
-        return FALSE;
-      }
     }
   } else {
     rule->enabled = TRUE;
-    if (!parse_test_expression (lx, rule, error))
+    if (!conditions_from_expression (test, rule, error))
       return FALSE;
   }
 
-  if (lx->kind != TK_LBRACE) {
-    unsupported (error, "expected \"{\" (action block)");
-    return FALSE;
-  }
-  if (!lex_advance (lx, error))
-    return FALSE;
-  while (lx->kind != TK_RBRACE) {
-    if (lx->kind == TK_EOF) {
-      unsupported (error, "unterminated action block");
+  for (guint i = 0; i < cmd->block->len; i++)
+    if (!action_from_command (g_ptr_array_index (cmd->block, i), rule, error))
       return FALSE;
-    }
-    if (!parse_action (lx, rule, error))
-      return FALSE;
-  }
-  return lex_advance (lx, error); /* consumes "}" */
+  return TRUE;
 }
 
 /* ---- Tolerant segmentation ("opaque" rules) -----------------------------
@@ -1059,9 +811,10 @@ parse_if (Lex *lx, SieveRule *rule, GError **error)
  * The top level of a Sieve script is a sequence of units: a
  * "# rule:[name]" followed by an `if ... { ... }` (structured, editable
  * rule), or anything else — a block from another tool (Nextcloud
- * Mail...), an `if` without a marker, a foreign simple command — which
- * is kept as-is in an opaque rule. Only a lexically broken script
- * (unclosed brace or string/comment) still makes the parser fail.
+ * Mail...), an `if` without a marker or with elsif/else branches, a
+ * foreign simple command, a command the parser couldn't make sense of —
+ * which is kept as-is in an opaque rule. Only a lexically broken script
+ * (unclosed brace, string or comment) still makes the parser fail.
  */
 
 /* TRUE if the [from, to) range contains only whitespace. */
@@ -1074,66 +827,83 @@ trivia_is_blank (const gchar *from, const gchar *to)
   return TRUE;
 }
 
-/* Starting from `p` (at the top level), returns the position just past
- * the next unit: the balanced "{ ... }" block, or the ";" of a simple
- * command. Skips quoted strings and comments (both "#" line comments
- * and block comments). `*ok` is set to FALSE if a brace, string or
- * comment is left open. */
-static const gchar *
-scan_toplevel_unit_end (const gchar *p, gboolean *ok)
+/* If the "#" comment at `hash` is a "# rule:[name]" marker, returns its
+ * name (newly allocated), otherwise NULL. */
+static gchar *
+rule_marker_name (const gchar *hash, const gchar *limit)
 {
-  gint depth = 0;
-  gboolean seen_brace = FALSE;
+  const gchar *eol = hash;
+  g_autofree gchar *line = NULL;
+  gchar *t, *rb;
 
-  *ok = TRUE;
-  for (; *p != '\0'; p++) {
-    if (*p == '"') {
-      for (p++; *p != '\0' && *p != '"'; p++)
-        if (*p == '\\' && p[1] != '\0')
-          p++;
-      if (*p == '\0') { *ok = FALSE; return p; }
-      continue; /* p is on the closing '"'; the loop's p++ moves past it */
-    }
-    if (*p == '#') {
-      while (*p != '\0' && *p != '\n')
-        p++;
-      if (*p == '\0')
-        return p; /* comment runs to the end: end of the unit */
-      continue;
-    }
-    if (p[0] == '/' && p[1] == '*') {
-      const gchar *e = strstr (p + 2, "*/");
-      if (e == NULL) { *ok = FALSE; return p; }
-      p = e + 1; /* the loop's p++ moves past the '/' */
-      continue;
-    }
-    if (*p == '{') { depth++; seen_brace = TRUE; continue; }
-    if (*p == '}') {
-      depth--;
-      if (seen_brace && depth <= 0)
-        return p + 1;
-      continue;
-    }
-    if (*p == ';' && !seen_brace && depth == 0)
-      return p + 1;
-  }
-  if (seen_brace && depth != 0)
-    *ok = FALSE;
-  return p;
+  while (eol < limit && *eol != '\0' && *eol != '\n')
+    eol++;
+  line = g_strndup (hash + 1, eol - (hash + 1));
+  t = g_strstrip (line);
+  if (!g_str_has_prefix (t, "rule:["))
+    return NULL;
+  rb = strrchr (t, ']');
+  if (rb == NULL || rb < t + 6)
+    return NULL;
+  return g_strndup (t + 6, rb - (t + 6));
 }
 
-/* After the end of a unit, absorbs comment lines that follow
+/* Counts the "# rule:[name]" markers among the comments in [from, to)
+ * (the whitespace/comments preceding a command); `*name` receives the
+ * last one's name. */
+static guint
+find_rule_markers (const gchar *from, const gchar *to, gchar **name)
+{
+  const gchar *p = from;
+  guint count = 0;
+
+  while (p < to) {
+    if (*p == '#') {
+      gchar *found = rule_marker_name (p, to);
+
+      if (found != NULL) {
+        count++;
+        g_free (*name);
+        *name = found;
+      }
+      while (p < to && *p != '\n')
+        p++;
+    } else if (p[0] == '/' && p + 1 < to && p[1] == '*') {
+      const gchar *e = g_strstr_len (p + 2, to - (p + 2), "*/");
+      p = (e != NULL) ? e + 2 : to;
+    } else {
+      p++;
+    }
+  }
+  return count;
+}
+
+/* After the end of an opaque unit (`end`), absorbs the rest of its last
+ * line if that's only a comment, then comment lines that follow
  * IMMEDIATELY (with no blank line in between) and are not a
  * "# rule:[...]" marker: typically a closing banner (Nextcloud Mail
  * re-prints "### Nextcloud Mail: Filters ### DON'T EDIT ###" after the
- * block). */
-static const gchar *
-swallow_trailing_comments (const gchar *p)
+ * block). Code sharing the unit's last line is never absorbed. */
+static gsize
+absorb_trailing_comments (const gchar *src, gsize end)
 {
-  while (*p != '\0' && *p != '\n')
+  const gchar *p = src + end;
+
+  while (*p == ' ' || *p == '\t' || *p == '\r')
     p++;
-  if (*p == '\n')
-    p++;
+  if (*p == '#') {
+    g_autofree gchar *marker = rule_marker_name (p, p + strlen (p));
+
+    if (marker != NULL)
+      return end;
+    while (*p != '\0' && *p != '\n')
+      p++;
+  }
+  if (*p == '\0')
+    return p - src;
+  if (*p != '\n')
+    return end;
+  p++;
 
   for (;;) {
     const gchar *q = p;
@@ -1143,10 +913,9 @@ swallow_trailing_comments (const gchar *p)
     if (*q != '#')
       break;
     {
-      const gchar *r = q + 1;
-      while (*r == ' ' || *r == '\t')
-        r++;
-      if (g_str_has_prefix (r, "rule:["))
+      g_autofree gchar *marker = rule_marker_name (q, q + strlen (q));
+
+      if (marker != NULL)
         break;
     }
     while (*q != '\0' && *q != '\n')
@@ -1155,7 +924,7 @@ swallow_trailing_comments (const gchar *p)
       q++;
     p = q;
   }
-  return p;
+  return p - src;
 }
 
 /* Copies [p, p+len), strips leading and trailing whitespace, guarantees
@@ -1219,111 +988,98 @@ opaque_rule_name (const gchar *raw)
   return (fallback != NULL) ? fallback : g_strdup ("(imported rule)");
 }
 
+static gboolean
+is_if_branch (const SieveAstCommand *cmd)
+{
+  return g_strcmp0 (cmd->name, "elsif") == 0 || g_strcmp0 (cmd->name, "else") == 0;
+}
+
 SieveRuleSet *
 sieve_rule_set_parse (const gchar *script, GError **error)
 {
-  Lex lx = { 0 };
-  SieveRuleSet *set = sieve_rule_set_new ();
-  GError *local = NULL;
-  GPtrArray *lead_req = g_ptr_array_new_with_free_func (g_free);
+  g_autoptr (SieveAst) ast = sieve_ast_parse (script, error);
+  SieveRuleSet *set;
+  const gchar *src;
+  gsize consumed = 0; /* source before this offset already belongs to a rule */
+  guint i = 0;
 
-  lx.cur = script != NULL ? script : "";
-
-  if (!lex_advance (&lx, &local))
-    goto fail;
+  if (ast == NULL)
+    return NULL;
+  src = ast->source;
+  set = sieve_rule_set_new ();
 
   /* Leading "require", only if it isn't preceded by any comment
    * (otherwise it belongs to a foreign block). Its extensions are kept
    * in `extra_requires`; sieve_rule_set_to_script() decides which of
    * them are re-emitted. */
-  if (lx.kind == TK_IDENT && g_ascii_strcasecmp (lx.val, "require") == 0 &&
-      trivia_is_blank (lx.trivia_start, lx.tok_start)) {
-    while (lx.kind != TK_SEMI && lx.kind != TK_EOF) {
-      if (lx.kind == TK_STRING)
-        g_ptr_array_add (lead_req, g_strdup (lx.val));
-      if (!lex_advance (&lx, &local))
-        goto fail;
+  if (ast->commands->len > 0) {
+    const SieveAstCommand *first = g_ptr_array_index (ast->commands, 0);
+
+    if (g_strcmp0 (first->name, "require") == 0 &&
+        trivia_is_blank (src + first->trivia_start, src + first->start)) {
+      GPtrArray *req = g_ptr_array_new_with_free_func (g_free);
+
+      for (guint j = 0; j < first->args->len; j++) {
+        const SieveAstArg *arg = arg_at (first->args, j);
+
+        if (arg->kind == SIEVE_AST_ARG_STRING)
+          g_ptr_array_add (req, g_strdup (arg->str));
+        else if (arg->kind == SIEVE_AST_ARG_STRING_LIST)
+          for (guint k = 0; k < arg->list->len; k++)
+            g_ptr_array_add (req, g_strdup (g_ptr_array_index (arg->list, k)));
+      }
+      if (req->len > 0)
+        set->extra_requires = req;
+      else
+        g_ptr_array_unref (req);
+      consumed = first->end;
+      i = 1;
     }
-    if (lx.kind == TK_SEMI && !lex_advance (&lx, &local))
-      goto fail;
   }
 
-  while (lx.kind != TK_EOF) {
-    const gchar *seg_start = lx.trivia_start;
-    gboolean was_rule = (lx.kind == TK_RULE);
-    gboolean structured_ok = FALSE;
+  while (i < ast->commands->len) {
+    const SieveAstCommand *cmd = g_ptr_array_index (ast->commands, i);
+    gsize seg_start = MAX (cmd->trivia_start, consumed);
+    g_autofree gchar *marker = NULL;
+    guint n_markers = find_rule_markers (src + seg_start, src + cmd->start, &marker);
+    guint last = i;
+    gsize end;
+    gchar *raw, *name;
 
-    if (was_rule) {
-      SieveRule *rule = sieve_rule_new (lx.val);
-      GError *try_err = NULL;
+    /* An if's elsif/else branches belong to the same unit. */
+    while (last + 1 < ast->commands->len &&
+           is_if_branch (g_ptr_array_index (ast->commands, last + 1)))
+      last++;
 
-      if (!lex_advance (&lx, &local)) {
-        sieve_rule_free (rule);
-        goto fail;
-      }
-      if (parse_if (&lx, rule, &try_err)) {
+    if (n_markers == 1 && last == i) {
+      SieveRule *rule = sieve_rule_new (marker);
+
+      if (rule_from_if (ast, cmd, rule, NULL)) {
         g_ptr_array_add (set->rules, rule);
-        structured_ok = TRUE;
-      } else {
-        g_clear_error (&try_err);
-        sieve_rule_free (rule);
+        consumed = cmd->end;
+        i++;
+        continue;
       }
+      sieve_rule_free (rule);
     }
 
-    if (structured_ok)
-      continue;
-
-    /* Unrepresentable unit: captured verbatim as an opaque rule. After a
-     * `parse_if` failure, the lexer is in some intermediate state — we
-     * rely only on `seg_start` (raw position) and `was_rule`. A foreign
-     * token at the top level (outside a marker) is only captured if it
-     * opens a plausible unit (TK_IDENT). */
-    if (was_rule || lx.kind == TK_IDENT) {
-      gboolean ok = FALSE;
-      const gchar *end = scan_toplevel_unit_end (seg_start, &ok);
-      gchar *raw, *name;
-
-      if (!ok) {
-        lex_syntax_error (&local,
-                          "incomplete Sieve script (unclosed brace, "
-                          "string or comment)");
-        goto fail;
-      }
-      end = swallow_trailing_comments (end);
-
-      raw = normalize_opaque_raw (seg_start, end - seg_start);
-      name = opaque_rule_name (raw);
-      g_ptr_array_add (set->rules, sieve_rule_new_opaque (name, raw));
-      g_free (raw);
-      g_free (name);
-
-      lx.cur = end;
-      if (!lex_advance (&lx, &local))
-        goto fail;
-      continue;
-    }
-
-    lex_syntax_error (&local, "unexpected token at the top level of the script");
-    goto fail;
+    /* Unrepresentable unit: captured verbatim as an opaque rule. */
+    end = absorb_trailing_comments (
+      src, ((const SieveAstCommand *) g_ptr_array_index (ast->commands, last))->end);
+    raw = normalize_opaque_raw (src + seg_start, end - seg_start);
+    name = opaque_rule_name (raw);
+    g_ptr_array_add (set->rules, sieve_rule_new_opaque (name, raw));
+    g_free (raw);
+    g_free (name);
+    consumed = end;
+    i = last + 1;
   }
 
-  if (lead_req->len > 0)
-    set->extra_requires = g_steal_pointer (&lead_req);
-
-  g_clear_pointer (&lead_req, g_ptr_array_unref);
-  lex_clear (&lx);
   return set;
-
-fail:
-  g_clear_pointer (&lead_req, g_ptr_array_unref);
-  lex_clear (&lx);
-  sieve_rule_set_free (set);
-  g_propagate_error (error, local);
-  return NULL;
 }
 
-/* Explicit, per-rule "unlock" of an opaque rule: reattempts the same
- * "if allof/anyof(...) { actions }" grammar sieve_rule_set_parse() uses
+/* Explicit, per-rule "unlock" of an opaque rule: applies the same
+ * "if allof/anyof(...) { actions }" mapping sieve_rule_set_parse() uses
  * for a marked rule, but without requiring a leading "# rule:[name]"
  * marker — unlike the tolerant whole-script parse, this is triggered
  * on demand for one specific rule (visual editor's "Unlock" button),
@@ -1340,37 +1096,35 @@ fail:
 SieveRule *
 sieve_rule_unlock (const SieveRule *rule, GError **error)
 {
-  Lex lx = { 0 };
-  SieveRule *result = NULL;
-  GError *local = NULL;
+  g_autoptr (SieveAst) ast = NULL;
+  const SieveAstCommand *cmd;
+  SieveRule *result;
 
   g_return_val_if_fail (rule != NULL && rule->opaque, NULL);
 
-  lx.cur = rule->raw != NULL ? rule->raw : "";
-  if (!lex_advance (&lx, &local))
-    goto out;
+  ast = sieve_ast_parse (rule->raw != NULL ? rule->raw : "", error);
+  if (ast == NULL)
+    return NULL;
 
-  if (lx.kind == TK_RULE && !lex_advance (&lx, &local))
-    goto out;
+  if (ast->commands->len == 0) {
+    unsupported (error, "expected \"if\"");
+    return NULL;
+  }
+  cmd = g_ptr_array_index (ast->commands, 0);
+  if (cmd->name == NULL) {
+    unsupported (error, "%s", cmd->error);
+    return NULL;
+  }
+  if (ast->commands->len > 1) {
+    unsupported (error, "more than a single \"if\" block");
+    return NULL;
+  }
 
   result = sieve_rule_new (rule->name);
-  if (!parse_if (&lx, result, &local)) {
+  if (!rule_from_if (ast, cmd, result, error)) {
     sieve_rule_free (result);
-    result = NULL;
-    goto out;
+    return NULL;
   }
-  if (lx.kind != TK_EOF) {
-    sieve_rule_free (result);
-    result = NULL;
-    unsupported (&local, "more than a single \"if\" block");
-  }
-
-out:
-  lex_clear (&lx);
-  if (result == NULL)
-    g_propagate_error (error, local);
-  else
-    g_clear_error (&local);
   return result;
 }
 

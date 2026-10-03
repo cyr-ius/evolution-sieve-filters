@@ -908,6 +908,157 @@ test_unknown_require_kept_managed_recomputed (void)
   g_assert_nonnull (strstr (out, "require [\"envelope\"];"));
 }
 
+/* Re-serialization of `script` is stable down to the last character. */
+static void
+assert_stable_roundtrip (const SieveRuleSet *set)
+{
+  g_autofree gchar *out = sieve_rule_set_to_script (set);
+  g_autoptr (SieveRuleSet) back = sieve_rule_set_parse (out, NULL);
+  g_autofree gchar *out2 = NULL;
+
+  g_assert_nonnull (back);
+  out2 = sieve_rule_set_to_script (back);
+  g_assert_cmpstr (out, ==, out2);
+}
+
+/* A "text:" multi-line string (vacation message...) may contain an
+ * unbalanced '"' or a '}': it must neither fail the whole parse nor
+ * swallow the next command into the same opaque rule. */
+static void
+test_multiline_text_kept_verbatim (void)
+{
+  const gchar *script =
+    "require [\"vacation\", \"fileinto\"];\n"
+    "vacation :days 3 :subject \"Away\" text:\n"
+    "My 5\" screen is broken }\n"
+    "..signature\n"
+    ".\n"
+    ";\n"
+    "# rule:[After]\n"
+    "if header :contains \"subject\" \"x\" { fileinto \"X\"; }\n";
+  g_autoptr (GError) error = NULL;
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, &error);
+  g_autofree gchar *out = NULL;
+  SieveRule *vac, *after;
+
+  g_assert_no_error (error);
+  g_assert_nonnull (set);
+  g_assert_cmpuint (set->rules->len, ==, 2);
+
+  vac = g_ptr_array_index (set->rules, 0);
+  g_assert_true (vac->opaque);
+  g_assert_cmpstr (vac->raw, ==,
+                   "vacation :days 3 :subject \"Away\" text:\n"
+                   "My 5\" screen is broken }\n"
+                   "..signature\n"
+                   ".\n"
+                   ";\n");
+
+  after = g_ptr_array_index (set->rules, 1);
+  g_assert_false (after->opaque);
+  g_assert_cmpstr (after->name, ==, "After");
+
+  out = sieve_rule_set_to_script (set);
+  g_assert_nonnull (strstr (out, "require [\"fileinto\", \"vacation\"];"));
+  assert_stable_roundtrip (set);
+}
+
+/* A marked "if" followed by elsif/else branches: the whole chain is one
+ * opaque unit (turning only the "if" into a structured rule would leave
+ * a dangling "else" behind, breaking the script as soon as rules get
+ * reordered). */
+static void
+test_if_else_chain_stays_together (void)
+{
+  const gchar *script =
+    "# rule:[Chain]\n"
+    "if header :is \"subject\" \"a\" {\n"
+    "  keep;\n"
+    "} elsif header :is \"subject\" \"b\" {\n"
+    "  discard;\n"
+    "} else {\n"
+    "  stop;\n"
+    "}\n"
+    "# rule:[Next]\n"
+    "if true { keep; }\n";
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, NULL);
+  SieveRule *r;
+
+  g_assert_nonnull (set);
+  g_assert_cmpuint (set->rules->len, ==, 2);
+  r = g_ptr_array_index (set->rules, 0);
+  g_assert_true (r->opaque);
+  g_assert_cmpstr (r->name, ==, "Chain");
+  g_assert_true (g_str_has_prefix (r->raw, "# rule:[Chain]\nif "));
+  g_assert_true (g_str_has_suffix (r->raw, "} else {\n  stop;\n}\n"));
+  g_assert_false (((SieveRule *) g_ptr_array_index (set->rules, 1))->opaque);
+  assert_stable_roundtrip (set);
+}
+
+/* Grammatically invalid (but lexically sound) commands, including a
+ * stray "}" at the top level, are kept verbatim as opaque rules; the
+ * rules around them stay editable. */
+static void
+test_invalid_command_becomes_opaque (void)
+{
+  const gchar *script =
+    "# rule:[Before]\n"
+    "if true { keep; }\n"
+    "if anyof (true,) { stop; }\n"
+    "}\n"
+    "# rule:[After]\n"
+    "if true { discard; }\n";
+  g_autoptr (GError) error = NULL;
+  g_autoptr (SieveRuleSet) set = sieve_rule_set_parse (script, &error);
+
+  g_assert_no_error (error);
+  g_assert_cmpuint (set->rules->len, ==, 4);
+  g_assert_false (((SieveRule *) g_ptr_array_index (set->rules, 0))->opaque);
+  g_assert_cmpstr (((SieveRule *) g_ptr_array_index (set->rules, 1))->raw, ==,
+                   "if anyof (true,) { stop; }\n");
+  g_assert_cmpstr (((SieveRule *) g_ptr_array_index (set->rules, 2))->raw, ==, "}\n");
+  g_assert_false (((SieveRule *) g_ptr_array_index (set->rules, 3))->opaque);
+  assert_stable_roundtrip (set);
+}
+
+/* An unterminated "text:" literal is a lexical error, like an unclosed
+ * brace. */
+static void
+test_reject_unterminated_multiline (void)
+{
+  g_autoptr (GError) error = NULL;
+  g_autoptr (SieveRuleSet) set =
+    sieve_rule_set_parse ("vacation text:\nNo final dot\n", &error);
+
+  g_assert_null (set);
+  g_assert_error (error, SIEVE_MODEL_ERROR, SIEVE_MODEL_ERROR_SYNTAX);
+}
+
+/* sieve_rule_unlock() goes through the same RFC 5228 parser: a "text:"
+ * literal in the opaque text is understood (here as a header value). */
+static void
+test_unlock_with_multiline_value (void)
+{
+  SieveRule *opaque = sieve_rule_new_opaque (
+    "(imported rule)",
+    "if header :contains \"subject\" text:\n"
+    "a \"quoted\" } word\n"
+    ".\n"
+    "{\n"
+    "  keep;\n"
+    "}\n");
+  g_autoptr (GError) error = NULL;
+  SieveRule *unlocked = sieve_rule_unlock (opaque, &error);
+
+  g_assert_no_error (error);
+  g_assert_nonnull (unlocked);
+  g_assert_cmpstr (sieve_condition_get_value (g_ptr_array_index (unlocked->conditions, 0)),
+                   ==, "a \"quoted\" } word\n");
+
+  sieve_rule_free (opaque);
+  sieve_rule_free (unlocked);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -946,5 +1097,10 @@ main (int argc, char **argv)
   g_test_add_func ("/sieve-model/variables-require-inferred", test_variables_require_inferred);
   g_test_add_func ("/sieve-model/unknown-require-kept-managed-recomputed",
                    test_unknown_require_kept_managed_recomputed);
+  g_test_add_func ("/sieve-model/multiline-text-kept-verbatim", test_multiline_text_kept_verbatim);
+  g_test_add_func ("/sieve-model/if-else-chain-stays-together", test_if_else_chain_stays_together);
+  g_test_add_func ("/sieve-model/invalid-command-becomes-opaque", test_invalid_command_becomes_opaque);
+  g_test_add_func ("/sieve-model/reject-unterminated-multiline", test_reject_unterminated_multiline);
+  g_test_add_func ("/sieve-model/unlock-with-multiline-value", test_unlock_with_multiline_value);
   return g_test_run ();
 }
